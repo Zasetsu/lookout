@@ -37,9 +37,9 @@
                 @foreach($mails as $mail)
                     @php $p = \Zasetsu\Lookout\Http\Support\Payload::decode($mail['payload'] ?? null) @endphp
                     <tr>
-                        <td class="px-5 py-3 text-sm font-medium">{{ $p['subject'] ?? '(No Subject)' }}</td>
-                        <td class="px-5 py-3 text-xs text-slate-500">{{ implode(', ', $p['to'] ?? []) }}</td>
-                        <td class="px-5 py-3 text-xs text-slate-500">{{ implode(', ', $p['from'] ?? []) }}</td>
+                        <td class="px-5 py-3 text-sm font-medium">{{ \Zasetsu\Lookout\Http\Support\Payload::string($p, 'subject', '(No Subject)') }}</td>
+                        <td class="px-5 py-3 text-xs text-slate-500">{{ implode(', ', \Zasetsu\Lookout\Http\Support\Payload::stringList($p, 'to')) }}</td>
+                        <td class="px-5 py-3 text-xs text-slate-500">{{ implode(', ', \Zasetsu\Lookout\Http\Support\Payload::stringList($p, 'from')) }}</td>
                         <td class="px-5 py-3 text-right text-xs text-slate-400">{{ $mail['timestamp'] }}</td>
                     </tr>
                 @endforeach

@@ -203,4 +203,22 @@ describe('ThresholdEvaluator', function () {
                 ['channel' => 'unknown', 'status' => 'skipped'],
             ]);
     });
+
+    it('skips malformed threshold channel payloads without throwing', function () {
+        $storage = new ThresholdEvaluatorStorageFake;
+        $evaluator = new DispatchingThresholdEvaluator($storage);
+
+        $evaluator->dispatch((object) [
+            'id' => 8,
+            'name' => 'Malformed channels',
+            'metric' => 'exception_count',
+            'condition' => 'gte',
+            'value' => 5,
+            'window_minutes' => 15,
+            'channels' => '"slack"',
+        ]);
+
+        expect($storage->auditLog)->toHaveCount(1)
+            ->and($storage->auditLog[0]['details']['deliveries'])->toBe([]);
+    });
 });

@@ -37,11 +37,11 @@
                 @foreach($notifications as $notification)
                     @php $p = \Zasetsu\Lookout\Http\Support\Payload::decode($notification['payload'] ?? null) @endphp
                     <tr>
-                        <td class="px-5 py-3 text-sm font-medium">{{ class_basename($p['notification'] ?? 'Unknown') }}</td>
+                        <td class="px-5 py-3 text-sm font-medium">{{ class_basename(\Zasetsu\Lookout\Http\Support\Payload::string($p, 'notification', 'Unknown')) }}</td>
                         <td class="px-5 py-3">
-                            <span class="badge badge-purple">{{ $p['channel'] ?? '&mdash;' }}</span>
+                            <span class="badge badge-purple">{{ \Zasetsu\Lookout\Http\Support\Payload::string($p, 'channel', '&mdash;') }}</span>
                         </td>
-                        <td class="px-5 py-3 text-xs text-slate-500">{{ $p['notifiable'] ?? '&mdash;' }}</td>
+                        <td class="px-5 py-3 text-xs text-slate-500">{{ \Zasetsu\Lookout\Http\Support\Payload::string($p, 'notifiable', '&mdash;') }}</td>
                         <td class="px-5 py-3 text-right text-xs text-slate-400">{{ $notification['timestamp'] }}</td>
                     </tr>
                 @endforeach

@@ -103,7 +103,7 @@ class ThresholdEvaluator
 
     protected function dispatchAlert(object $threshold): void
     {
-        $channels = json_decode($threshold->channels, true) ?? [];
+        $channels = $this->thresholdChannels($threshold);
 
         $context = [
             'threshold_id' => $threshold->id,
@@ -150,5 +150,19 @@ class ThresholdEvaluator
             'webhook' => app(Channels\WebhookChannel::class),
             default => null,
         };
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    protected function thresholdChannels(object $threshold): array
+    {
+        $channels = json_decode($threshold->channels, true);
+
+        if (! is_array($channels)) {
+            return [];
+        }
+
+        return array_values(array_filter($channels, is_string(...)));
     }
 }

@@ -16,6 +16,12 @@ class PruneCommand extends Command
     {
         $days = (int) ($this->option('days') ?? config('lookout.retention.days', 14));
 
+        if ($days <= 0) {
+            $this->error('Retention days must be greater than zero.');
+
+            return self::FAILURE;
+        }
+
         $this->info("Pruning records older than {$days} days...");
 
         $deleted = $storage->prune($days);

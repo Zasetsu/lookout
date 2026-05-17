@@ -5,12 +5,12 @@
     $errorCount = 0; $totalReqs = count($requests);
     foreach($requests as $req) {
         $p = \Zasetsu\Lookout\Http\Support\Payload::decode($req['payload'] ?? null);
-        $s = $p['response_status'] ?? null;
-        $failed = ($p['failed'] ?? false) === true;
+        $s = array_key_exists('response_status', $p) ? \Zasetsu\Lookout\Http\Support\Payload::number($p, 'response_status') : null;
+        $failed = \Zasetsu\Lookout\Http\Support\Payload::bool($p, 'failed');
         if ($failed || ($s !== null && $s >= 400)) $errorCount++;
     }
     $errorRate = $totalReqs > 0 ? round(($errorCount / $totalReqs) * 100, 1) : 0;
-    $avgDuration = collect($requests)->avg(function($r) { $p = \Zasetsu\Lookout\Http\Support\Payload::decode($r['payload'] ?? null); return $p['duration_ms'] ?? 0; }) ?? 0;
+    $avgDuration = collect($requests)->avg(function($r) { $p = \Zasetsu\Lookout\Http\Support\Payload::decode($r['payload'] ?? null); return \Zasetsu\Lookout\Http\Support\Payload::number($p, 'duration_ms'); }) ?? 0;
 @endphp
 
 <div class="space-y-6">
@@ -54,12 +54,13 @@
                 @foreach($requests as $req)
                     @php $p = \Zasetsu\Lookout\Http\Support\Payload::decode($req['payload'] ?? null) @endphp
                     <tr>
-                        <td class="px-5 py-3"><span class="method-badge method-{{ $p['method'] ?? 'GET' }}">{{ $p['method'] ?? 'GET' }}</span></td>
-                        <td class="px-5 py-3 font-mono text-xs text-slate-600 max-w-md truncate">{{ $p['url'] ?? '&mdash;' }}</td>
+                        <td class="px-5 py-3"><span class="method-badge method-{{ \Zasetsu\Lookout\Http\Support\Payload::string($p, 'method', 'GET') }}">{{ \Zasetsu\Lookout\Http\Support\Payload::string($p, 'method', 'GET') }}</span></td>
+                        <td class="px-5 py-3 font-mono text-xs text-slate-600 max-w-md truncate">{{ \Zasetsu\Lookout\Http\Support\Payload::string($p, 'url', '&mdash;') }}</td>
                         <td class="px-5 py-3">
                             @php
-                                $status = $p['response_status'] ?? 0;
-                                $failed = ($p['failed'] ?? false) === true;
+                                $status = \Zasetsu\Lookout\Http\Support\Payload::number($p, 'response_status');
+                                $failed = \Zasetsu\Lookout\Http\Support\Payload::bool($p, 'failed');
+                                $duration = \Zasetsu\Lookout\Http\Support\Payload::number($p, 'duration_ms');
                             @endphp
                             @if($failed)
                                 <span class="badge badge-red">Failed</span>
@@ -67,7 +68,7 @@
                                 <span class="badge {{ $status >= 500 ? 'badge-red' : ($status >= 400 ? 'badge-amber' : 'badge-green') }}">{{ $status }}</span>
                             @endif
                         </td>
-                        <td class="px-5 py-3 text-right font-mono text-xs {{ ($p['duration_ms'] ?? 0) > 1000 ? 'duration-critical' : (($p['duration_ms'] ?? 0) > 500 ? 'duration-warn' : 'text-slate-500') }}">{{ isset($p['duration_ms']) ? number_format($p['duration_ms']) . ' ms' : '&mdash;' }}</td>
+                        <td class="px-5 py-3 text-right font-mono text-xs {{ $duration > 1000 ? 'duration-critical' : ($duration > 500 ? 'duration-warn' : 'text-slate-500') }}">{{ array_key_exists('duration_ms', $p) ? number_format($duration) . ' ms' : '&mdash;' }}</td>
                         <td class="px-5 py-3 text-right text-xs text-slate-400">{{ $req['timestamp'] }}</td>
                     </tr>
                 @endforeach

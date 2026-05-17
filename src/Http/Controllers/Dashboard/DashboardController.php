@@ -289,13 +289,17 @@ class DashboardController extends Controller
         $result = $this->storage->getEventsByType('mail', [], 50);
 
         $uniqueSubjects = collect($result['data'])
-            ->map(fn ($m) => Payload::decode($m['payload'] ?? null)['subject'] ?? null)
+            ->map(function ($m) {
+                $subject = Payload::string(Payload::decode($m['payload'] ?? null), 'subject');
+
+                return $subject !== '' ? $subject : null;
+            })
             ->filter()
             ->unique()
             ->count();
 
         $uniqueRecipients = collect($result['data'])
-            ->flatMap(fn ($m) => Payload::decode($m['payload'] ?? null)['to'] ?? [])
+            ->flatMap(fn ($m) => Payload::stringList(Payload::decode($m['payload'] ?? null), 'to'))
             ->unique()
             ->count();
 
@@ -313,13 +317,21 @@ class DashboardController extends Controller
         $result = $this->storage->getEventsByType('notification', [], 50);
 
         $uniqueTypes = collect($result['data'])
-            ->map(fn ($n) => class_basename(Payload::decode($n['payload'] ?? null)['notification'] ?? ''))
+            ->map(function ($n) {
+                $notification = Payload::string(Payload::decode($n['payload'] ?? null), 'notification');
+
+                return $notification !== '' ? class_basename($notification) : null;
+            })
             ->filter()
             ->unique()
             ->count();
 
         $uniqueChannels = collect($result['data'])
-            ->map(fn ($n) => Payload::decode($n['payload'] ?? null)['channel'] ?? null)
+            ->map(function ($n) {
+                $channel = Payload::string(Payload::decode($n['payload'] ?? null), 'channel');
+
+                return $channel !== '' ? $channel : null;
+            })
             ->filter()
             ->unique()
             ->count();
