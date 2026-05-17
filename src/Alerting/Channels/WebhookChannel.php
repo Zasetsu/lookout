@@ -17,9 +17,13 @@ class WebhookChannel implements ChannelContract
         $payload = json_encode($context);
         $signature = hash_hmac('sha256', $payload, config('app.key'));
 
-        Http::withHeaders([
-            'X-Lookout-Signature' => $signature,
-            'Content-Type' => 'application/json',
-        ])->post($url, $context);
+        Http::timeout(5)
+            ->retry(2, 100)
+            ->withHeaders([
+                'X-Lookout-Signature' => $signature,
+                'Content-Type' => 'application/json',
+            ])
+            ->post($url, $context)
+            ->throw();
     }
 }

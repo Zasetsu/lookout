@@ -23,6 +23,14 @@ describe('Lookout controller middleware order', function () {
         expect($middleware[0]['middleware'])->toBe('throttle:120');
     });
 
+    it('uses constant-time comparisons for configured dashboard and API secrets', function () {
+        $basicAuth = file_get_contents(__DIR__.'/../../../src/Http/Middleware/BasicAuth.php');
+        $apiController = file_get_contents(__DIR__.'/../../../src/Http/Controllers/Api/ApiController.php');
+
+        expect($basicAuth)->toContain('hash_equals')
+            ->and($apiController)->toContain('hash_equals');
+    });
+
     it('prepends trace bootstrap before host web and api middleware', function () {
         $router = app('router');
         $router->middlewareGroup('web', ['HostWebMiddleware']);

@@ -30,7 +30,7 @@ class ApiController extends Controller
 
             $provided = $request->bearerToken();
 
-            if ($provided !== $token) {
+            if (! is_string($provided) || ! hash_equals($token, $provided)) {
                 abort(401, 'Unauthorized');
             }
 

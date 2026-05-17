@@ -20,7 +20,12 @@ class BasicAuth
         $providedUser = $request->getUser();
         $providedPass = $request->getPassword();
 
-        if ($providedUser === $user && $providedPass === $pass) {
+        if (
+            is_string($providedUser)
+            && is_string($providedPass)
+            && hash_equals($user, $providedUser)
+            && hash_equals($pass, $providedPass)
+        ) {
             return $next($request);
         }
 
