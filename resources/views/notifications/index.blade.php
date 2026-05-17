@@ -35,7 +35,7 @@
             </thead>
             <tbody class="divide-y divide-gray-50">
                 @foreach($notifications as $notification)
-                    @php $p = json_decode($notification['payload'], true) ?? [] @endphp
+                    @php $p = \Zasetsu\Lookout\Http\Support\Payload::decode($notification['payload'] ?? null) @endphp
                     <tr>
                         <td class="px-5 py-3 text-sm font-medium">{{ class_basename($p['notification'] ?? 'Unknown') }}</td>
                         <td class="px-5 py-3">

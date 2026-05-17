@@ -4,13 +4,13 @@
 @php
     $errorCount = 0; $totalReqs = count($requests);
     foreach($requests as $req) {
-        $p = json_decode($req['payload'], true) ?? [];
+        $p = \Zasetsu\Lookout\Http\Support\Payload::decode($req['payload'] ?? null);
         $s = $p['response_status'] ?? null;
         $failed = ($p['failed'] ?? false) === true;
         if ($failed || ($s !== null && $s >= 400)) $errorCount++;
     }
     $errorRate = $totalReqs > 0 ? round(($errorCount / $totalReqs) * 100, 1) : 0;
-    $avgDuration = collect($requests)->avg(function($r) { $p = json_decode($r['payload'] ?? '{}', true) ?? []; return $p['duration_ms'] ?? 0; }) ?? 0;
+    $avgDuration = collect($requests)->avg(function($r) { $p = \Zasetsu\Lookout\Http\Support\Payload::decode($r['payload'] ?? null); return $p['duration_ms'] ?? 0; }) ?? 0;
 @endphp
 
 <div class="space-y-6">
@@ -52,7 +52,7 @@
             </thead>
             <tbody class="divide-y divide-gray-50">
                 @foreach($requests as $req)
-                    @php $p = json_decode($req['payload'], true) ?? [] @endphp
+                    @php $p = \Zasetsu\Lookout\Http\Support\Payload::decode($req['payload'] ?? null) @endphp
                     <tr>
                         <td class="px-5 py-3"><span class="method-badge method-{{ $p['method'] ?? 'GET' }}">{{ $p['method'] ?? 'GET' }}</span></td>
                         <td class="px-5 py-3 font-mono text-xs text-slate-600 max-w-md truncate">{{ $p['url'] ?? '&mdash;' }}</td>

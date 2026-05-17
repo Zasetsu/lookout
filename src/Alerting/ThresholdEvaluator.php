@@ -113,19 +113,31 @@ class ThresholdEvaluator
             'value' => $threshold->value,
             'window_minutes' => $threshold->window_minutes,
         ];
+        $deliveries = [];
 
         foreach ($channels as $channelName) {
             try {
                 $channel = $this->resolveChannel($channelName);
                 if ($channel) {
                     $channel->send($threshold, $context);
+                    $deliveries[] = ['channel' => $channelName, 'status' => 'sent'];
+                } else {
+                    $deliveries[] = ['channel' => $channelName, 'status' => 'skipped'];
                 }
             } catch (\Throwable $e) {
+                $deliveries[] = [
+                    'channel' => $channelName,
+                    'status' => 'failed',
+                    'error' => $e->getMessage(),
+                ];
+
                 logger()->warning("Lookout alert channel {$channelName} failed", [
                     'error' => $e->getMessage(),
                 ]);
             }
         }
+
+        $context['deliveries'] = $deliveries;
 
         $this->storage->logAudit('threshold_triggered', null, null, $context);
     }

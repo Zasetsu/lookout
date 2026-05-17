@@ -35,7 +35,7 @@
             </thead>
             <tbody class="divide-y divide-gray-50">
                 @foreach($mails as $mail)
-                    @php $p = json_decode($mail['payload'], true) ?? [] @endphp
+                    @php $p = \Zasetsu\Lookout\Http\Support\Payload::decode($mail['payload'] ?? null) @endphp
                     <tr>
                         <td class="px-5 py-3 text-sm font-medium">{{ $p['subject'] ?? '(No Subject)' }}</td>
                         <td class="px-5 py-3 text-xs text-slate-500">{{ implode(', ', $p['to'] ?? []) }}</td>

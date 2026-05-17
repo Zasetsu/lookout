@@ -71,7 +71,7 @@
             </thead>
             <tbody class="divide-y divide-gray-50">
                 @foreach($jobs as $job)
-                    @php $payload = json_decode($job['payload'], true) ?? [] @endphp
+                    @php $payload = \Zasetsu\Lookout\Http\Support\Payload::decode($job['payload'] ?? null) @endphp
                     <tr>
                         <td class="px-5 py-3 text-sm font-medium">{{ $payload['job_class'] ?? $job['labels'] ?? 'Unknown' }}</td>
                         <td class="px-5 py-3 text-xs text-slate-500">{{ $payload['queue'] ?? 'default' }}</td>

@@ -169,6 +169,39 @@ describe('DashboardController filter validation', function () {
         expect($storage->exceptionFilters)->toBeNull();
     });
 
+    it('rejects unsupported dashboard enum filters before querying storage', function () {
+        $storage = new DashboardFilterStorageFake;
+        $controller = new DashboardController($storage);
+
+        expectDashboardFilterRejection(fn () => $controller->requests(Request::create('/lookout/requests', 'GET', [
+            'status' => 'deleted',
+        ])));
+
+        expectDashboardFilterRejection(fn () => $controller->requests(Request::create('/lookout/requests', 'GET', [
+            'method' => 'TRACE',
+        ])));
+
+        expectDashboardFilterRejection(fn () => $controller->exceptions(Request::create('/lookout/exceptions', 'GET', [
+            'status' => 'closed',
+        ])));
+
+        expect($storage->traceFilters)->toBeNull()
+            ->and($storage->exceptionFilters)->toBeNull();
+    });
+
+    it('accepts supported dashboard enum filters before querying storage', function () {
+        $storage = new DashboardFilterStorageFake;
+        $controller = new DashboardController($storage);
+
+        $controller->requests(Request::create('/lookout/requests', 'GET', [
+            'status' => 'error',
+            'method' => 'GET',
+        ]));
+
+        expect($storage->traceFilters['status'])->toBe('error')
+            ->and($storage->traceFilters['method'])->toBe('GET');
+    });
+
     it('rejects non-scalar query thresholds before querying storage', function () {
         $storage = new DashboardFilterStorageFake;
         $controller = new DashboardController($storage);

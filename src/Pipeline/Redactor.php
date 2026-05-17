@@ -4,14 +4,11 @@ namespace Zasetsu\Lookout\Pipeline;
 
 class Redactor
 {
-    protected array $patterns;
+    protected RedactionPolicy $policy;
 
-    public function __construct()
+    public function __construct(?RedactionPolicy $policy = null)
     {
-        $this->patterns = array_merge(
-            config('lookout.redaction.patterns', []),
-            config('lookout.redaction.custom', [])
-        );
+        $this->policy = $policy ?? RedactionPolicy::fromConfig();
     }
 
     public function redact(mixed $data): mixed
@@ -49,15 +46,15 @@ class Redactor
 
     protected function redactString(string $value): string
     {
-        foreach ($this->patterns as $pattern) {
-            if ($this->normalizeForComparison($pattern) === 'authorization') {
+        foreach ($this->policy->patterns() as $pattern) {
+            if ($this->policy->normalizeForComparison($pattern) === 'authorization') {
                 $value = $this->redactAuthorizationHeader($value);
                 $value = $this->redactAuthSchemes($value);
 
                 continue;
             }
 
-            $patternRegex = $this->patternRegex($pattern);
+            $patternRegex = $this->policy->patternRegex($pattern);
             $keyRegex = '/(?<![A-Za-z0-9])("?([A-Za-z0-9_.-]*'.$patternRegex.'[A-Za-z0-9_.-]*)"?\s*[:=]\s*)("[^"]*"|\'[^\']*\'|[^\s,}\]&;]+)/i';
 
             $redacted = preg_replace_callback(
@@ -125,23 +122,12 @@ class Redactor
         return '***';
     }
 
-    protected function patternRegex(string $pattern): string
-    {
-        $parts = preg_split('/[^A-Za-z0-9]+/', $pattern, -1, PREG_SPLIT_NO_EMPTY);
-
-        if (empty($parts)) {
-            return preg_quote($pattern, '/');
-        }
-
-        return implode('[\s_-]*', array_map(fn (string $part): string => preg_quote($part, '/'), $parts));
-    }
-
     protected function redactArray(array $data): array
     {
         $result = [];
 
         foreach ($data as $key => $value) {
-            if (is_string($key) && $this->isSensitiveKey($key)) {
+            if (is_string($key) && $this->policy->isSensitiveKey($key)) {
                 $result[$key] = '***';
             } elseif (is_array($value)) {
                 $result[$key] = $this->redactArray($value);
@@ -155,32 +141,9 @@ class Redactor
         return $result;
     }
 
-    protected function isSensitiveKey(string $key): bool
-    {
-        $normalizedKey = $this->normalizeForComparison($key);
-
-        foreach ($this->patterns as $pattern) {
-            $normalizedPattern = $this->normalizeForComparison($pattern);
-            if (str_contains($normalizedKey, $normalizedPattern)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     public function containsSensitiveContent(string $text): bool
     {
-        $normalized = $this->normalizeForComparison($text);
-
-        foreach ($this->patterns as $pattern) {
-            $normalizedPattern = $this->normalizeForComparison($pattern);
-            if (str_contains($normalized, $normalizedPattern)) {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->policy->containsSensitiveContent($text);
     }
 
     protected function redactUrlPath(string $path): string
@@ -253,7 +216,7 @@ class Redactor
 
             [$key, $value] = $parts;
 
-            if ($this->isSensitiveKey(rawurldecode($key))) {
+            if ($this->policy->isSensitiveKey(rawurldecode($key))) {
                 $segments[$index] = $key.'='.$this->redactedQueryValue($value);
 
                 continue;
@@ -337,11 +300,6 @@ class Redactor
         $url .= isset($parts['fragment']) ? '#'.$parts['fragment'] : '';
 
         return $url;
-    }
-
-    protected function normalizeForComparison(string $value): string
-    {
-        return strtolower(preg_replace('/[^A-Za-z0-9]/', '', $value) ?? $value);
     }
 
     public function redactJson(string $json): string

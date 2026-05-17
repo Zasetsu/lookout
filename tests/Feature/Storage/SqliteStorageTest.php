@@ -37,6 +37,15 @@ describe('SqliteStorage', function () {
         expect($this->storage)->toBeInstanceOf(StorageContract::class);
     });
 
+    it('keeps read query plumbing behind focused helper methods', function () {
+        $reflection = new ReflectionClass(SqliteStorage::class);
+
+        expect($reflection->hasMethod('storageConnection'))->toBeTrue()
+            ->and($reflection->hasMethod('table'))->toBeTrue()
+            ->and($reflection->hasMethod('rowsToArray'))->toBeTrue()
+            ->and($reflection->hasMethod('paginate'))->toBeTrue();
+    });
+
     it('stores and retrieves a trace', function () {
         $context = [
             'trace_id' => Str::uuid()->toString(),

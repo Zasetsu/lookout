@@ -226,6 +226,35 @@ describe('ApiController', function () {
             ->and($storage->traceFilters)->toBeNull();
     });
 
+    it('rejects unsupported API request enum filters before querying storage', function () {
+        $storage = new ApiControllerStorageFake;
+        $controller = new ApiController($storage);
+
+        $statusResponse = $controller->requests(Request::create('/lookout/api/requests', 'GET', [
+            'status' => 'deleted',
+        ]));
+
+        $methodResponse = $controller->requests(Request::create('/lookout/api/requests', 'GET', [
+            'method' => 'TRACE',
+        ]));
+
+        expect($statusResponse->getStatusCode())->toBe(422)
+            ->and($methodResponse->getStatusCode())->toBe(422)
+            ->and($storage->traceFilters)->toBeNull();
+    });
+
+    it('rejects unsupported API exception status filters before querying storage', function () {
+        $storage = new ApiControllerStorageFake;
+        $controller = new ApiController($storage);
+
+        $response = $controller->exceptions(Request::create('/lookout/api/exceptions', 'GET', [
+            'status' => 'closed',
+        ]));
+
+        expect($response->getStatusCode())->toBe(422)
+            ->and($storage->exceptionFilters)->toBeNull();
+    });
+
     it('rejects non-scalar exception filters before querying storage', function () {
         $storage = new ApiControllerStorageFake;
         $controller = new ApiController($storage);
@@ -326,5 +355,19 @@ describe('ApiController', function () {
 
         expect($response->getStatusCode())->toBe(200)
             ->and($storage->traceFilters['min_duration'])->toBe(1500);
+    });
+
+    it('accepts supported API enum filters before querying storage', function () {
+        $storage = new ApiControllerStorageFake;
+        $controller = new ApiController($storage);
+
+        $response = $controller->requests(Request::create('/lookout/api/requests', 'GET', [
+            'status' => 'error',
+            'method' => 'POST',
+        ]));
+
+        expect($response->getStatusCode())->toBe(200)
+            ->and($storage->traceFilters['status'])->toBe('error')
+            ->and($storage->traceFilters['method'])->toBe('POST');
     });
 });

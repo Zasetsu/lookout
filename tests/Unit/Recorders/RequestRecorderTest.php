@@ -31,6 +31,18 @@ class RequestRecorderTrackingRedactor extends Redactor
     }
 }
 
+class RequestRecorderBodyCaptureRequest extends Request
+{
+    public bool $exceptWasCalled = false;
+
+    public function except($keys)
+    {
+        $this->exceptWasCalled = true;
+
+        return parent::except($keys);
+    }
+}
+
 describe('RequestRecorder', function () {
     it('truncates large request bodies before storing them in the trace context', function () {
         config([
@@ -85,6 +97,47 @@ describe('RequestRecorder', function () {
             ->and($redactor->largestArrayPayloadBytes)->toBeLessThan(1000)
             ->and($redactor->largestStringPayloadBytes)->toBeLessThanOrEqual(120)
             ->and(json_encode($body))->not->toContain(str_repeat('a', 5000));
+    });
+
+    it('uses content length to avoid parsing oversized raw request bodies', function () {
+        config([
+            'lookout.ingestion.max_request_body_bytes' => 120,
+            'lookout.sampling.auto' => false,
+            'lookout.sampling.request' => 1.0,
+        ]);
+
+        $buffer = new TraceBuffer;
+        $redactor = new RequestRecorderTrackingRedactor;
+        $recorder = new RequestRecorder($buffer, new Sampler, new Filter, $redactor);
+
+        $rawBody = json_encode([
+            'payload' => str_repeat('a', 5000),
+            'token' => 'secret-token',
+        ]);
+
+        $request = RequestRecorderBodyCaptureRequest::create(
+            '/webhook',
+            'POST',
+            [],
+            [],
+            [],
+            [
+                'CONTENT_TYPE' => 'application/json',
+                'CONTENT_LENGTH' => strlen($rawBody ?: ''),
+            ],
+            $rawBody
+        );
+
+        $recorder->handleRequest(new RequestHandled($request, new Response('ok', 200)));
+
+        $body = $buffer->getContext()?->requestBody;
+
+        expect($body)->toBeArray()
+            ->and($body['_lookout_truncated'])->toBeTrue()
+            ->and($body['_lookout_original_size'])->toBeGreaterThan(5000)
+            ->and($request->exceptWasCalled)->toBeFalse()
+            ->and($redactor->largestStringPayloadBytes)->toBeLessThanOrEqual(120)
+            ->and(json_encode($body))->not->toContain('secret-token');
     });
 
     it('refreshes the authenticated user id after downstream middleware runs', function () {

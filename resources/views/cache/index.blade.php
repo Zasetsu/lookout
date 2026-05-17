@@ -87,7 +87,7 @@
             </thead>
             <tbody class="divide-y divide-gray-50">
                 @foreach($events as $event)
-                    @php $p = json_decode($event['payload'], true) ?? [] @endphp
+                    @php $p = \Zasetsu\Lookout\Http\Support\Payload::decode($event['payload'] ?? null) @endphp
                     <tr>
                         <td class="px-5 py-3">
                             @switch($p['operation'] ?? '')

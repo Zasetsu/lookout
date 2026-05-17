@@ -2,6 +2,9 @@
 
 namespace Zasetsu\Lookout\Storage;
 
+use Illuminate\Database\Connection;
+use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class SqliteStorage implements StorageContract
@@ -26,16 +29,45 @@ class SqliteStorage implements StorageContract
 
         foreach ($pragmas as $pragma => $value) {
             if (is_string($value)) {
-                DB::connection($this->connection)->statement("PRAGMA {$pragma} = {$value}");
+                $this->storageConnection()->statement("PRAGMA {$pragma} = {$value}");
             } elseif (is_int($value)) {
-                DB::connection($this->connection)->statement("PRAGMA {$pragma} = {$value}");
+                $this->storageConnection()->statement("PRAGMA {$pragma} = {$value}");
             }
         }
     }
 
+    protected function storageConnection(): Connection
+    {
+        return DB::connection($this->connection);
+    }
+
+    protected function table(string $table): Builder
+    {
+        return $this->storageConnection()->table($table);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    protected function rowsToArray(Collection $rows): array
+    {
+        return $rows->map(fn ($row) => (array) $row)->all();
+    }
+
+    /**
+     * @return array{data: array<int, array<string, mixed>>, total: int}
+     */
+    protected function paginate(Builder $query, int $limit, int $offset): array
+    {
+        $total = (clone $query)->count();
+        $items = $this->rowsToArray($query->offset($offset)->limit($limit)->get());
+
+        return ['data' => $items, 'total' => $total];
+    }
+
     public function storeTrace(array $context): void
     {
-        DB::connection($this->connection)->table('lookout_traces')->insert($context);
+        $this->table('lookout_traces')->insert($context);
     }
 
     public function storeEvents(string $traceId, array $events): void
@@ -54,13 +86,13 @@ class SqliteStorage implements StorageContract
         $batchSize = (int) config('lookout.ingestion.batch_size', 100);
 
         foreach (array_chunk($events, $batchSize) as $chunk) {
-            DB::connection($this->connection)->table('lookout_events')->insert($chunk);
+            $this->table('lookout_events')->insert($chunk);
         }
     }
 
     public function storeTraceBatch(array $context, array $events): void
     {
-        DB::connection($this->connection)->transaction(function () use ($context, $events) {
+        $this->storageConnection()->transaction(function () use ($context, $events) {
             $this->storeTrace($context);
             $this->storeEvents($context['trace_id'], $events);
         });
@@ -68,7 +100,7 @@ class SqliteStorage implements StorageContract
 
     public function getTraces(array $filters = [], int $limit = 25, int $offset = 0): array
     {
-        $query = DB::connection($this->connection)->table('lookout_traces')->orderBy('timestamp', 'desc');
+        $query = $this->table('lookout_traces')->orderBy('timestamp', 'desc');
 
         if (isset($filters['type'])) {
             $query->where('type', $filters['type']);
@@ -95,16 +127,12 @@ class SqliteStorage implements StorageContract
             $query->where('user_id', $filters['user_id']);
         }
 
-        $total = $query->count();
-        $items = $query->offset($offset)->limit($limit)->get()->map(fn ($row) => (array) $row)->all();
-
-        return ['data' => $items, 'total' => $total];
+        return $this->paginate($query, $limit, $offset);
     }
 
     public function getTrace(string $traceId): ?array
     {
-        $trace = DB::connection($this->connection)
-            ->table('lookout_traces')
+        $trace = $this->table('lookout_traces')
             ->where('trace_id', $traceId)
             ->first();
 
@@ -117,19 +145,15 @@ class SqliteStorage implements StorageContract
 
     public function getEvents(string $traceId): array
     {
-        return DB::connection($this->connection)
-            ->table('lookout_events')
+        return $this->rowsToArray($this->table('lookout_events')
             ->where('trace_id', $traceId)
             ->orderBy('timestamp', 'asc')
-            ->get()
-            ->map(fn ($row) => (array) $row)
-            ->all();
+            ->get());
     }
 
     public function getExceptionGroups(array $filters = [], int $limit = 25, int $offset = 0): array
     {
-        $query = DB::connection($this->connection)
-            ->table('lookout_exception_groups')
+        $query = $this->table('lookout_exception_groups')
             ->orderBy('last_seen', 'desc');
 
         if (isset($filters['status'])) {
@@ -139,16 +163,12 @@ class SqliteStorage implements StorageContract
             $query->where('exception_class', 'like', "%{$filters['class']}%");
         }
 
-        $total = $query->count();
-        $items = $query->offset($offset)->limit($limit)->get()->map(fn ($row) => (array) $row)->all();
-
-        return ['data' => $items, 'total' => $total];
+        return $this->paginate($query, $limit, $offset);
     }
 
     public function getExceptionGroupStatusCounts(): array
     {
-        $rows = DB::connection($this->connection)
-            ->table('lookout_exception_groups')
+        $rows = $this->table('lookout_exception_groups')
             ->selectRaw('status, count(*) as count')
             ->groupBy('status')
             ->get();
@@ -163,8 +183,7 @@ class SqliteStorage implements StorageContract
 
     public function getExceptionGroup(int $groupId): ?array
     {
-        $group = DB::connection($this->connection)
-            ->table('lookout_exception_groups')
+        $group = $this->table('lookout_exception_groups')
             ->where('id', $groupId)
             ->first();
 
@@ -173,31 +192,26 @@ class SqliteStorage implements StorageContract
 
     public function resolveExceptionGroup(int $groupId): bool
     {
-        return DB::connection($this->connection)
-            ->table('lookout_exception_groups')
+        return $this->table('lookout_exception_groups')
             ->where('id', $groupId)
             ->update(['status' => 'resolved', 'resolved_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString()]) > 0;
     }
 
     public function ignoreExceptionGroup(int $groupId): bool
     {
-        return DB::connection($this->connection)
-            ->table('lookout_exception_groups')
+        return $this->table('lookout_exception_groups')
             ->where('id', $groupId)
             ->update(['status' => 'ignored', 'updated_at' => now()->toDateTimeString()]) > 0;
     }
 
     public function getSlowQueries(int $threshold = 500, int $limit = 25): array
     {
-        return DB::connection($this->connection)
-            ->table('lookout_events')
+        return $this->rowsToArray($this->table('lookout_events')
             ->where('event_type', 'query')
             ->where('duration', '>=', $threshold)
             ->orderBy('duration', 'desc')
             ->limit($limit)
-            ->get()
-            ->map(fn ($row) => (array) $row)
-            ->all();
+            ->get());
     }
 
     public function getSummary(string $since = '-24 hours'): array

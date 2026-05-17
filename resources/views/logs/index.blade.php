@@ -4,7 +4,7 @@
 @php
     $errorCount = 0; $warnCount = 0; $infoCount = 0; $debugCount = 0;
     foreach($logs as $log) {
-        $p = json_decode($log['payload'], true) ?? [];
+        $p = \Zasetsu\Lookout\Http\Support\Payload::decode($log['payload'] ?? null);
         $level = $p['level'] ?? 'info';
         if (in_array($level, ['error', 'critical', 'emergency'])) $errorCount++;
         elseif (in_array($level, ['warning', 'alert'])) $warnCount++;
@@ -52,7 +52,7 @@
             <tbody class="divide-y divide-gray-50">
                 @foreach($logs as $log)
                     @php
-                        $p = json_decode($log['payload'], true) ?? [];
+                        $p = \Zasetsu\Lookout\Http\Support\Payload::decode($log['payload'] ?? null);
                         $level = $p['level'] ?? 'info';
                         $levelBadge = match($level) {
                             'error', 'critical', 'emergency' => 'badge-red',

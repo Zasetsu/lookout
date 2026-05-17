@@ -1,6 +1,9 @@
 <?php
 
 use Illuminate\Support\Facades\DB;
+use Zasetsu\Lookout\Alerting\Channels\ChannelContract;
+use Zasetsu\Lookout\Alerting\Channels\SlackChannel;
+use Zasetsu\Lookout\Alerting\Channels\WebhookChannel;
 use Zasetsu\Lookout\Alerting\ThresholdEvaluator;
 use Zasetsu\Lookout\Storage\StorageContract;
 
@@ -130,6 +133,27 @@ class ClaimableThresholdEvaluator extends ThresholdEvaluator
     }
 }
 
+class DispatchingThresholdEvaluator extends ThresholdEvaluator
+{
+    public function dispatch(object $threshold): void
+    {
+        $this->dispatchAlert($threshold);
+    }
+}
+
+class SuccessfulSlackChannel extends SlackChannel
+{
+    public function send(object $threshold, array $context): void {}
+}
+
+class FailingWebhookChannel implements ChannelContract
+{
+    public function send(object $threshold, array $context): void
+    {
+        throw new RuntimeException('webhook unavailable');
+    }
+}
+
 describe('ThresholdEvaluator', function () {
     it('atomically claims a threshold cooldown slot once', function () {
         config(['lookout.storage.connection' => 'lookout']);
@@ -152,5 +176,31 @@ describe('ThresholdEvaluator', function () {
 
         expect($evaluator->claim($threshold))->toBeTrue()
             ->and($evaluator->claim($threshold))->toBeFalse();
+    });
+
+    it('records per-channel alert delivery telemetry in the audit log', function () {
+        app()->instance(SlackChannel::class, new SuccessfulSlackChannel);
+        app()->instance(WebhookChannel::class, new FailingWebhookChannel);
+
+        $storage = new ThresholdEvaluatorStorageFake;
+        $evaluator = new DispatchingThresholdEvaluator($storage);
+
+        $evaluator->dispatch((object) [
+            'id' => 7,
+            'name' => 'High exceptions',
+            'metric' => 'exception_count',
+            'condition' => 'gte',
+            'value' => 5,
+            'window_minutes' => 15,
+            'channels' => json_encode(['slack', 'webhook', 'unknown']),
+        ]);
+
+        expect($storage->auditLog)->toHaveCount(1)
+            ->and($storage->auditLog[0]['action'])->toBe('threshold_triggered')
+            ->and($storage->auditLog[0]['details']['deliveries'])->toBe([
+                ['channel' => 'slack', 'status' => 'sent'],
+                ['channel' => 'webhook', 'status' => 'failed', 'error' => 'webhook unavailable'],
+                ['channel' => 'unknown', 'status' => 'skipped'],
+            ]);
     });
 });

@@ -29,6 +29,31 @@ trait NormalizesFilterInput
         return $result;
     }
 
+    /**
+     * @param  array<string, string>  $filters
+     * @param  array<string, array<int, string>>  $allowedValues
+     * @return array<string, mixed>|false
+     */
+    protected function allowedScalarFilters(Request $request, array $filters, array $allowedValues): array|false
+    {
+        $result = $this->scalarFilters($request, $filters);
+
+        if ($result === false) {
+            return false;
+        }
+
+        foreach ($result as $filter => $value) {
+            if (
+                array_key_exists($filter, $allowedValues)
+                && ! in_array((string) $value, $allowedValues[$filter], true)
+            ) {
+                return false;
+            }
+        }
+
+        return $result;
+    }
+
     protected function scalarFilterValue(Request $request, string $parameter): mixed
     {
         $value = $request->get($parameter);

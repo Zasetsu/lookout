@@ -62,9 +62,11 @@ class ApiController extends Controller
 
     public function exceptions(Request $request): JsonResponse
     {
-        $filters = $this->scalarFilters($request, [
+        $filters = $this->allowedScalarFilters($request, [
             'status' => 'status',
             'class' => 'class',
+        ], [
+            'status' => ['unresolved', 'resolved', 'ignored'],
         ]);
 
         if ($filters === false) {
@@ -98,9 +100,13 @@ class ApiController extends Controller
             return response()->json(['message' => 'Invalid slower_than parameter.'], 422);
         }
 
-        $filters = $this->scalarFilters($request, [
+        $filters = $this->allowedScalarFilters($request, [
             'status' => 'status',
+            'method' => 'method',
             'name' => 'route',
+        ], [
+            'status' => ['success', 'error'],
+            'method' => ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
         ]);
 
         if ($filters === false) {

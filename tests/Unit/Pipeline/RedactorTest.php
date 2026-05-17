@@ -1,8 +1,18 @@
 <?php
 
+use Zasetsu\Lookout\Pipeline\RedactionPolicy;
 use Zasetsu\Lookout\Pipeline\Redactor;
 
 describe('Redactor', function () {
+    it('centralizes sensitive pattern matching in a redaction policy', function () {
+        $policy = new RedactionPolicy(['api_key', 'credit_card', 'authorization']);
+
+        expect($policy->isSensitiveKey('apiKey'))->toBeTrue()
+            ->and($policy->isSensitiveKey('creditCard'))->toBeTrue()
+            ->and($policy->containsSensitiveContent('Authorization: Bearer token'))->toBeTrue()
+            ->and($policy->patternRegex('api_key'))->toBe('api[\s_-]*key');
+    });
+
     it('redacts sensitive array keys', function () {
         config(['lookout.redaction.patterns' => ['password', 'token'], 'lookout.redaction.custom' => []]);
         $redactor = new Redactor;

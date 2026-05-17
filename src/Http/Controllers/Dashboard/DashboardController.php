@@ -9,6 +9,7 @@ use Zasetsu\Lookout\Http\Middleware\Authorize;
 use Zasetsu\Lookout\Http\Middleware\BasicAuth;
 use Zasetsu\Lookout\Http\Middleware\IpWhitelist;
 use Zasetsu\Lookout\Http\Middleware\LocalhostOnly;
+use Zasetsu\Lookout\Http\Support\Payload;
 use Zasetsu\Lookout\Storage\StorageContract;
 
 class DashboardController extends Controller
@@ -64,11 +65,14 @@ class DashboardController extends Controller
 
     public function requests(Request $request)
     {
-        $filters = $this->scalarFilters($request, [
+        $filters = $this->allowedScalarFilters($request, [
             'status' => 'status',
             'name' => 'route',
             'method' => 'method',
             'since' => 'since',
+        ], [
+            'status' => ['success', 'error'],
+            'method' => ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
         ]);
 
         if ($filters === false) {
@@ -132,9 +136,11 @@ class DashboardController extends Controller
 
     public function exceptions(Request $request)
     {
-        $filters = $this->scalarFilters($request, [
+        $filters = $this->allowedScalarFilters($request, [
             'status' => 'status',
             'class' => 'class',
+        ], [
+            'status' => ['unresolved', 'resolved', 'ignored'],
         ]);
 
         if ($filters === false) {
@@ -283,13 +289,13 @@ class DashboardController extends Controller
         $result = $this->storage->getEventsByType('mail', [], 50);
 
         $uniqueSubjects = collect($result['data'])
-            ->map(fn ($m) => json_decode($m['payload'] ?? '{}', true)['subject'] ?? null)
+            ->map(fn ($m) => Payload::decode($m['payload'] ?? null)['subject'] ?? null)
             ->filter()
             ->unique()
             ->count();
 
         $uniqueRecipients = collect($result['data'])
-            ->flatMap(fn ($m) => json_decode($m['payload'] ?? '{}', true)['to'] ?? [])
+            ->flatMap(fn ($m) => Payload::decode($m['payload'] ?? null)['to'] ?? [])
             ->unique()
             ->count();
 
@@ -307,13 +313,13 @@ class DashboardController extends Controller
         $result = $this->storage->getEventsByType('notification', [], 50);
 
         $uniqueTypes = collect($result['data'])
-            ->map(fn ($n) => class_basename(json_decode($n['payload'] ?? '{}', true)['notification'] ?? ''))
+            ->map(fn ($n) => class_basename(Payload::decode($n['payload'] ?? null)['notification'] ?? ''))
             ->filter()
             ->unique()
             ->count();
 
         $uniqueChannels = collect($result['data'])
-            ->map(fn ($n) => json_decode($n['payload'] ?? '{}', true)['channel'] ?? null)
+            ->map(fn ($n) => Payload::decode($n['payload'] ?? null)['channel'] ?? null)
             ->filter()
             ->unique()
             ->count();
