@@ -75,6 +75,23 @@ describe('Redactor', function () {
             ->and($result)->not->toContain('token-secret');
     });
 
+    it('redacts encoded nested sensitive values in URL query parameters', function () {
+        config([
+            'lookout.redaction.patterns' => ['authorization', 'api_key', 'token'],
+            'lookout.redaction.custom' => [],
+        ]);
+
+        $redactor = new Redactor;
+        $result = $redactor->redactUrl('https://api.example.test/callback?redirect=https%3A%2F%2Fclient.test%2Fcb%3Faccess_token%3Dnested-secret%26state%3Dok&headers=Authorization%3A%20Bearer%20encoded-secret&meta=%7B%22apiKey%22%3A%22json-secret%22%7D');
+
+        expect($result)->not->toContain('nested-secret')
+            ->and($result)->not->toContain('encoded-secret')
+            ->and($result)->not->toContain('json-secret')
+            ->and(rawurldecode($result))->toContain('access_token=***')
+            ->and(rawurldecode($result))->toContain('Authorization: Bearer ***')
+            ->and(rawurldecode($result))->toContain('"apiKey":"***"');
+    });
+
     it('redacts standalone auth schemes and token words in free form strings', function () {
         config([
             'lookout.redaction.patterns' => ['authorization', 'token'],

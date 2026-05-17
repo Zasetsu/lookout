@@ -63,11 +63,9 @@ class RequestRecorder implements RecorderContract
             $event->request->headers->all()
         );
 
-        $requestBody = $this->redactor->redact(
-            $event->request->except(array_keys($event->request->file() ?? []))
-        );
-
-        $context->requestBody = $this->limitRequestBody($requestBody);
+        $context->requestBody = $this->captureRequestBody($event->request->except(
+            array_keys($event->request->file() ?? [])
+        ));
 
         if (defined('LARAVEL_START')) {
             $context->duration = (int) ((microtime(true) - LARAVEL_START) * 1000);
@@ -77,7 +75,7 @@ class RequestRecorder implements RecorderContract
         $context->memoryPeak = memory_get_peak_usage(true);
     }
 
-    protected function limitRequestBody(array $body): array
+    protected function captureRequestBody(array $body): array
     {
         $encoded = json_encode($body, JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
 
@@ -92,13 +90,17 @@ class RequestRecorder implements RecorderContract
         $maxBytes = (int) config('lookout.ingestion.max_request_body_bytes', 16384);
 
         if ($maxBytes > 0 && strlen($encoded) <= $maxBytes) {
-            return $body;
+            return $this->redactor->redact($body);
         }
+
+        $preview = $maxBytes > 0
+            ? substr($encoded, 0, $maxBytes)
+            : '';
 
         return [
             '_lookout_truncated' => true,
             '_lookout_original_size' => strlen($encoded),
-            '_lookout_preview' => $maxBytes > 0 ? substr($encoded, 0, $maxBytes) : '',
+            '_lookout_preview' => $preview !== '' ? $this->redactor->redact($preview) : '',
         ];
     }
 }

@@ -255,6 +255,13 @@ class Redactor
 
             if ($this->isSensitiveKey(rawurldecode($key))) {
                 $segments[$index] = $key.'='.$this->redactedQueryValue($value);
+
+                continue;
+            }
+
+            $redactedValue = $this->redactNestedQueryValue($value);
+            if ($redactedValue !== $value) {
+                $segments[$index] = $key.'='.$redactedValue;
             }
         }
 
@@ -268,6 +275,25 @@ class Redactor
         }
 
         return '***';
+    }
+
+    protected function redactNestedQueryValue(string $value): string
+    {
+        $decoded = rawurldecode($value);
+        if ($decoded === $value) {
+            return $value;
+        }
+
+        $trimmed = trim($decoded);
+        $redacted = str_starts_with($trimmed, '{') || str_starts_with($trimmed, '[')
+            ? $this->redactJson($decoded)
+            : $this->redactString($decoded);
+
+        if ($redacted === $decoded) {
+            return $value;
+        }
+
+        return rawurlencode($redacted);
     }
 
     protected function isSensitivePathMarker(string $segment): bool
