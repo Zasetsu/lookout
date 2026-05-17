@@ -19,8 +19,26 @@ jobs:
       - name: Install dependencies
         run: composer install --prefer-dist --no-interaction --no-progress
 
+      - name: Install frontend dependencies
+        run: npm install --no-audit --no-fund
+
       - name: Run tests
-        run: vendor/bin/pest
+        run: vendor/bin/pest --parallel
+
+      - name: Run PHPStan
+        run: vendor/bin/phpstan analyse --memory-limit=512M
+
+      - name: Run Pint
+        run: vendor/bin/pint --test
+
+      - name: Audit Composer dependencies
+        run: composer audit
+
+      - name: Audit frontend dependencies
+        run: npm audit --audit-level=moderate
+
+      - name: Build assets
+        run: npm run build
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

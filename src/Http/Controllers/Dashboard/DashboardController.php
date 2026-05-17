@@ -44,6 +44,9 @@ class DashboardController extends Controller
             ['route' => 'lookout.notifications', 'label' => 'Notifications', 'icon' => '🔔'],
             ['route' => 'lookout.logs', 'label' => 'Logs', 'icon' => '📋'],
             ['route' => 'lookout.outgoing', 'label' => 'Outgoing HTTP', 'icon' => '📤'],
+            ['route' => 'lookout.alerts', 'label' => 'Alerts', 'icon' => '🚨'],
+            ['route' => 'lookout.audit', 'label' => 'Audit', 'icon' => '🧾'],
+            ['route' => 'lookout.health', 'label' => 'Health', 'icon' => '🩺'],
         ];
     }
 
@@ -365,5 +368,111 @@ class DashboardController extends Controller
             'requests' => $result['data'],
             'total' => $result['total'],
         ]);
+    }
+
+    public function alerts()
+    {
+        $result = $this->storage->getAuditLog(['action' => 'threshold_triggered'], 50, 0);
+
+        return view('lookout::alerts.index', [
+            'title' => 'Alerts',
+            'entries' => $result['data'],
+            'total' => $result['total'],
+        ]);
+    }
+
+    public function audit(Request $request)
+    {
+        $filters = $this->scalarFilters($request, [
+            'action' => 'action',
+            'since' => 'since',
+        ]);
+
+        if ($filters === false) {
+            abort(422, 'Invalid audit filter parameter.');
+        }
+
+        $page = $this->integerParameter($request, 'page', 1, 1);
+        if ($page === false) {
+            abort(422, 'Invalid page parameter.');
+        }
+
+        $result = $this->storage->getAuditLog($filters, 50, ($page - 1) * 50);
+
+        return view('lookout::audit.index', [
+            'title' => 'Audit Log',
+            'entries' => $result['data'],
+            'total' => $result['total'],
+            'filters' => $filters,
+        ]);
+    }
+
+    public function exportAudit(Request $request)
+    {
+        $format = $this->scalarFilterValue($request, 'format') ?? 'csv';
+
+        if ($format === false || ! in_array((string) $format, ['csv', 'json'], true)) {
+            abort(422, 'Invalid audit export format.');
+        }
+
+        $result = $this->storage->getAuditLog([], 1000, 0);
+
+        if ($format === 'json') {
+            return response()->json([
+                'data' => $result['data'],
+                'meta' => [
+                    'total' => $result['total'],
+                    'limit' => 1000,
+                ],
+            ]);
+        }
+
+        return response($this->auditCsv($result['data']), 200, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="lookout-audit-log.csv"',
+        ]);
+    }
+
+    public function health()
+    {
+        return view('lookout::health.index', [
+            'title' => 'Health',
+            'health' => $this->storage->getHealth(),
+        ]);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $entries
+     */
+    protected function auditCsv(array $entries): string
+    {
+        $handle = fopen('php://temp', 'r+');
+
+        if ($handle === false) {
+            return '';
+        }
+
+        fputcsv($handle, ['created_at', 'action', 'user_id', 'ip', 'details']);
+
+        foreach ($entries as $entry) {
+            $details = $entry['details'] ?? null;
+            if (is_array($details)) {
+                $details = json_encode($details);
+            }
+
+            fputcsv($handle, [
+                $entry['created_at'] ?? '',
+                $entry['action'] ?? '',
+                $entry['user_id'] ?? '',
+                $entry['ip'] ?? '',
+                is_string($details) ? $details : '',
+            ]);
+        }
+
+        rewind($handle);
+        $contents = stream_get_contents($handle);
+        fclose($handle);
+
+        return is_string($contents) ? $contents : '';
     }
 }

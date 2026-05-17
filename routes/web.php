@@ -29,4 +29,8 @@ Route::prefix(config('lookout.dashboard.path', 'lookout'))
         Route::get('/notifications', [DashboardController::class, 'notifications'])->name('lookout.notifications');
         Route::get('/logs', [DashboardController::class, 'logs'])->name('lookout.logs');
         Route::get('/outgoing', [DashboardController::class, 'outgoing'])->name('lookout.outgoing');
+        Route::get('/alerts', [DashboardController::class, 'alerts'])->name('lookout.alerts');
+        Route::get('/audit', [DashboardController::class, 'audit'])->name('lookout.audit');
+        Route::get('/audit/export', [DashboardController::class, 'exportAudit'])->name('lookout.audit-export');
+        Route::get('/health', [DashboardController::class, 'health'])->name('lookout.health');
     });

@@ -1,5 +1,3 @@
-import Alpine from 'alpinejs';
-
-Alpine.start();
-
-window.Alpine = Alpine;
+(function () {
+    document.addEventListener('DOMContentLoaded', function () {});
+})();

@@ -85,7 +85,17 @@ class ExceptionRecorderStorageFake implements StorageContract
 
     public function logAudit(string $action, ?string $userId = null, ?string $ip = null, ?array $details = null): void {}
 
+    public function getAuditLog(array $filters = [], int $limit = 50, int $offset = 0): array
+    {
+        return ['data' => [], 'total' => 0];
+    }
+
     public function getHealth(): array
+    {
+        return [];
+    }
+
+    public function getPayloadBudgetStats(): array
     {
         return [];
     }

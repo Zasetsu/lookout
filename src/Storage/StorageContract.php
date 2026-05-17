@@ -36,7 +36,11 @@ interface StorageContract
 
     public function logAudit(string $action, ?string $userId = null, ?string $ip = null, ?array $details = null): void;
 
+    public function getAuditLog(array $filters = [], int $limit = 50, int $offset = 0): array;
+
     public function getHealth(): array;
+
+    public function getPayloadBudgetStats(): array;
 
     public function getEventsByType(string $eventType, array $filters = [], int $limit = 25, int $offset = 0): array;
 

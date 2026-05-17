@@ -625,8 +625,69 @@ describe('SqliteStorage', function () {
         expect($entry->details)->toBeNull();
     });
 
+    it('filters and paginates audit log entries', function () {
+        DB::connection('lookout')->table('lookout_audit_log')->insert([
+            [
+                'action' => 'threshold_triggered',
+                'user_id' => null,
+                'ip' => null,
+                'details' => '{"name":"High exceptions"}',
+                'created_at' => now()->subMinutes(3)->toDateTimeString(),
+            ],
+            [
+                'action' => 'exception_group_resolved',
+                'user_id' => 'user-1',
+                'ip' => '127.0.0.1',
+                'details' => '{"group_id":42}',
+                'created_at' => now()->subMinutes(2)->toDateTimeString(),
+            ],
+            [
+                'action' => 'threshold_triggered',
+                'user_id' => null,
+                'ip' => null,
+                'details' => '{"name":"Slow requests"}',
+                'created_at' => now()->subMinute()->toDateTimeString(),
+            ],
+        ]);
+
+        $firstPage = $this->storage->getAuditLog(['action' => 'threshold_triggered'], 1, 0);
+        $secondPage = $this->storage->getAuditLog(['action' => 'threshold_triggered'], 1, 1);
+
+        expect($firstPage['total'])->toBe(2)
+            ->and($firstPage['data'])->toHaveCount(1)
+            ->and($firstPage['data'][0]['details'])->toContain('Slow requests')
+            ->and($secondPage['data'])->toHaveCount(1)
+            ->and($secondPage['data'][0]['details'])->toContain('High exceptions');
+    });
+
+    it('reports request payload budget statistics', function () {
+        $this->storage->storeTrace(makeTraceContext(Str::uuid()->toString(), [
+            'request_body' => json_encode(['name' => 'small']),
+        ]));
+        $this->storage->storeTrace(makeTraceContext(Str::uuid()->toString(), [
+            'request_body' => json_encode([
+                '_lookout_truncated' => true,
+                '_lookout_original_size' => 65536,
+            ]),
+        ]));
+        $this->storage->storeTrace(makeTraceContext(Str::uuid()->toString(), [
+            'request_body' => json_encode([
+                '_lookout_truncated' => true,
+                '_lookout_original_size' => 32768,
+            ]),
+        ]));
+
+        $stats = $this->storage->getPayloadBudgetStats();
+
+        expect($stats['request_bodies'])->toBe(3)
+            ->and($stats['truncated_request_bodies'])->toBe(2)
+            ->and($stats['largest_original_request_body_bytes'])->toBe(65536)
+            ->and($stats['max_request_body_bytes'])->toBe((int) config('lookout.ingestion.max_request_body_bytes', 16384));
+    });
+
     it('gets health info', function () {
         $this->storage->storeTrace(makeTraceContext(Str::uuid()->toString()));
+        $this->storage->logAudit('prune_run', null, null, ['deleted_traces' => 12]);
 
         $health = $this->storage->getHealth();
         expect($health)->toHaveKey('status');
@@ -635,8 +696,14 @@ describe('SqliteStorage', function () {
         expect($health)->toHaveKey('trace_count');
         expect($health)->toHaveKey('event_count');
         expect($health)->toHaveKey('recent_requests_5m');
+        expect($health)->toHaveKey('retention_days');
+        expect($health)->toHaveKey('prune_chance');
+        expect($health)->toHaveKey('last_prune_at');
+        expect($health)->toHaveKey('last_prune_deleted_traces');
+        expect($health)->toHaveKey('payload_budget');
         expect($health['status'])->toBe('ok');
         expect($health['trace_count'])->toBeGreaterThanOrEqual(1);
+        expect($health['last_prune_deleted_traces'])->toBe(12);
     });
 });
 

@@ -1,13 +1,13 @@
 {
     "private": true,
     "scripts": {
-        "build": "npx tailwindcss -i ./resources/css/lookout.css -o ./resources/dist/lookout.css --minify",
+        "build": "npm run build:css && npm run build:js",
+        "build:css": "npx tailwindcss -i ./resources/css/lookout.css -o ./resources/dist/lookout.css --minify",
+        "build:js": "node -e \"require('fs').mkdirSync('resources/dist', { recursive: true }); require('fs').copyFileSync('resources/js/lookout.js', 'resources/dist/lookout.js')\"",
         "dev": "npx tailwindcss -i ./resources/css/lookout.css -o ./resources/dist/lookout.css --watch"
     },
     "devDependencies": {
         "@tailwindcss/forms": "^0.5.7",
-        "alpinejs": "^3.14",
-        "chart.js": "^4.4",
         "tailwindcss": "^3.4"
     }
 }

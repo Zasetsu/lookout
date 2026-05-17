@@ -332,6 +332,21 @@ class SqliteStorage implements StorageContract
         ]);
     }
 
+    public function getAuditLog(array $filters = [], int $limit = 50, int $offset = 0): array
+    {
+        $query = $this->table('lookout_audit_log')->orderBy('created_at', 'desc');
+
+        if (isset($filters['action'])) {
+            $query->where('action', $filters['action']);
+        }
+
+        if (isset($filters['since'])) {
+            $query->where('created_at', '>=', $filters['since']);
+        }
+
+        return $this->paginate($query, $limit, $offset);
+    }
+
     public function getHealth(): array
     {
         $path = config('lookout.storage.path');
@@ -346,6 +361,13 @@ class SqliteStorage implements StorageContract
             ->where('timestamp', '>=', now()->subMinutes(5)->toDateTimeString())
             ->count();
 
+        $lastPrune = $this->table('lookout_audit_log')
+            ->where('action', 'prune_run')
+            ->orderBy('created_at', 'desc')
+            ->first();
+
+        $lastPruneDetails = $lastPrune ? json_decode((string) $lastPrune->details, true) : [];
+
         return [
             'status' => 'ok',
             'storage_size_bytes' => $fileSize,
@@ -353,6 +375,50 @@ class SqliteStorage implements StorageContract
             'trace_count' => $traceCount,
             'event_count' => $eventCount,
             'recent_requests_5m' => $recentRequests,
+            'retention_days' => (int) config('lookout.retention.days', 14),
+            'prune_chance' => (int) config('lookout.retention.prune_chance', 1000),
+            'last_prune_at' => $lastPrune->created_at ?? null,
+            'last_prune_deleted_traces' => is_array($lastPruneDetails) ? ($lastPruneDetails['deleted_traces'] ?? null) : null,
+            'payload_budget' => $this->getPayloadBudgetStats(),
+        ];
+    }
+
+    public function getPayloadBudgetStats(): array
+    {
+        $totalRequestBodies = $this->table('lookout_traces')
+            ->where('type', 'request')
+            ->whereNotNull('request_body')
+            ->count();
+
+        $truncatedBodies = $this->table('lookout_traces')
+            ->where('type', 'request')
+            ->where('request_body', 'like', '%"_lookout_truncated":true%')
+            ->count();
+
+        $largestOriginalSize = $this->table('lookout_traces')
+            ->where('type', 'request')
+            ->where('request_body', 'like', '%"_lookout_truncated":true%')
+            ->orderBy('timestamp', 'desc')
+            ->limit(1000)
+            ->pluck('request_body')
+            ->map(function ($body): int {
+                $decoded = json_decode((string) $body, true);
+
+                if (! is_array($decoded)) {
+                    return 0;
+                }
+
+                $size = $decoded['_lookout_original_size'] ?? 0;
+
+                return is_numeric($size) ? (int) $size : 0;
+            })
+            ->max() ?? 0;
+
+        return [
+            'max_request_body_bytes' => (int) config('lookout.ingestion.max_request_body_bytes', 16384),
+            'request_bodies' => $totalRequestBodies,
+            'truncated_request_bodies' => $truncatedBodies,
+            'largest_original_request_body_bytes' => $largestOriginalSize,
         ];
     }
 

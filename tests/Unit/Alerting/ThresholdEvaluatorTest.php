@@ -79,7 +79,17 @@ class ThresholdEvaluatorStorageFake implements StorageContract
         $this->auditLog[] = compact('action', 'userId', 'ip', 'details');
     }
 
+    public function getAuditLog(array $filters = [], int $limit = 50, int $offset = 0): array
+    {
+        return ['data' => [], 'total' => 0];
+    }
+
     public function getHealth(): array
+    {
+        return [];
+    }
+
+    public function getPayloadBudgetStats(): array
     {
         return [];
     }

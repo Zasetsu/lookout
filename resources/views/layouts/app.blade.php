@@ -83,6 +83,11 @@
                 <a href="{{ route('lookout.notifications') }}" class="sidebar-link {{ request()->routeIs('lookout.notifications') ? 'active' : '' }}">Notifications</a>
                 <a href="{{ route('lookout.logs') }}" class="sidebar-link {{ request()->routeIs('lookout.logs') ? 'active' : '' }}">Logs</a>
                 <a href="{{ route('lookout.outgoing') }}" class="sidebar-link {{ request()->routeIs('lookout.outgoing') ? 'active' : '' }}">Outgoing HTTP</a>
+
+                <div class="pt-3 pb-1 px-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Operations</div>
+                <a href="{{ route('lookout.alerts') }}" class="sidebar-link {{ request()->routeIs('lookout.alerts') ? 'active' : '' }}">Alerts</a>
+                <a href="{{ route('lookout.audit') }}" class="sidebar-link {{ request()->routeIs('lookout.audit*') ? 'active' : '' }}">Audit</a>
+                <a href="{{ route('lookout.health') }}" class="sidebar-link {{ request()->routeIs('lookout.health') ? 'active' : '' }}">Health</a>
             </nav>
             <div class="px-4 py-3 border-t border-slate-800 text-[11px] text-slate-500">
                 Lookout v0.1.0

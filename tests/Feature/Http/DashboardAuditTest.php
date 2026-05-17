@@ -1,12 +1,21 @@
 <?php
 
 use Illuminate\Http\Request;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Zasetsu\Lookout\Http\Controllers\Dashboard\DashboardController;
 use Zasetsu\Lookout\Storage\StorageContract;
 
 class DashboardAuditStorageFake implements StorageContract
 {
     public array $auditLog = [];
+
+    public array $auditEntries = [];
+
+    public ?array $auditFilters = null;
+
+    public ?int $auditLimit = null;
+
+    public ?int $auditOffset = null;
 
     public array $resolvedGroups = [];
 
@@ -84,7 +93,21 @@ class DashboardAuditStorageFake implements StorageContract
         $this->auditLog[] = compact('action', 'userId', 'ip', 'details');
     }
 
+    public function getAuditLog(array $filters = [], int $limit = 50, int $offset = 0): array
+    {
+        $this->auditFilters = $filters;
+        $this->auditLimit = $limit;
+        $this->auditOffset = $offset;
+
+        return ['data' => $this->auditEntries, 'total' => count($this->auditEntries)];
+    }
+
     public function getHealth(): array
+    {
+        return [];
+    }
+
+    public function getPayloadBudgetStats(): array
     {
         return [];
     }
@@ -130,6 +153,19 @@ class DashboardAuditStorageFake implements StorageContract
     }
 }
 
+function expectDashboardAuditRejection(callable $callback): void
+{
+    try {
+        $callback();
+    } catch (HttpException $exception) {
+        expect($exception->getStatusCode())->toBe(422);
+
+        return;
+    }
+
+    throw new RuntimeException('Expected dashboard audit validation to reject the request.');
+}
+
 describe('DashboardController audit logging', function () {
     beforeEach(function () {
         $request = Request::create('/lookout/exceptions/42', 'POST', server: [
@@ -163,5 +199,59 @@ describe('DashboardController audit logging', function () {
             ->and($storage->auditLog[0]['action'])->toBe('exception_group_ignored')
             ->and($storage->auditLog[0]['ip'])->toBe('10.0.0.5')
             ->and($storage->auditLog[0]['details'])->toBe(['group_id' => 42]);
+    });
+
+    it('passes audit filters and pagination to storage', function () {
+        $storage = new DashboardAuditStorageFake;
+        $controller = new DashboardController($storage);
+
+        $controller->audit(Request::create('/lookout/audit', 'GET', [
+            'action' => 'threshold_triggered',
+            'since' => '2026-05-17 00:00:00',
+            'page' => '3',
+        ]));
+
+        expect($storage->auditFilters)->toBe([
+            'action' => 'threshold_triggered',
+            'since' => '2026-05-17 00:00:00',
+        ])
+            ->and($storage->auditLimit)->toBe(50)
+            ->and($storage->auditOffset)->toBe(100);
+    });
+
+    it('rejects non-scalar audit filters before querying storage', function () {
+        $storage = new DashboardAuditStorageFake;
+        $controller = new DashboardController($storage);
+
+        expectDashboardAuditRejection(fn () => $controller->audit(Request::create('/lookout/audit', 'GET', [
+            'action' => ['threshold_triggered'],
+        ])));
+
+        expect($storage->auditFilters)->toBeNull();
+    });
+
+    it('exports audit entries as csv and json', function () {
+        $storage = new DashboardAuditStorageFake;
+        $storage->auditEntries = [[
+            'created_at' => '2026-05-17 12:00:00',
+            'action' => 'threshold_triggered',
+            'user_id' => null,
+            'ip' => null,
+            'details' => '{"name":"High exceptions"}',
+        ]];
+        $controller = new DashboardController($storage);
+
+        $csv = $controller->exportAudit(Request::create('/lookout/audit/export', 'GET', [
+            'format' => 'csv',
+        ]));
+        $json = $controller->exportAudit(Request::create('/lookout/audit/export', 'GET', [
+            'format' => 'json',
+        ]));
+
+        expect($csv->headers->get('Content-Type'))->toContain('text/csv')
+            ->and($csv->getContent())->toContain('created_at,action,user_id,ip,details')
+            ->and($csv->getContent())->toContain('threshold_triggered')
+            ->and($json->getData(true)['meta']['total'])->toBe(1)
+            ->and($json->getData(true)['data'][0]['action'])->toBe('threshold_triggered');
     });
 });
