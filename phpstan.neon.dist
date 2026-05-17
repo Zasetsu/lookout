@@ -1,0 +1,10 @@
+parameters:
+    level: 5
+    paths:
+        - src
+        - tests
+    ignoreErrors:
+        - message: '#Call to an undefined method PHPUnit\\Framework\\TestCase::(get|withHeaders|withServerVariables)#'
+          path: tests/
+        - message: '#Access to an undefined property PHPUnit\\Framework\\TestCase::\$storage#'
+          path: tests/

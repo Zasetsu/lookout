@@ -1,0 +1,66 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - php: 8.2
+            laravel: 11.*
+            testbench: 9.*
+            pest: ^3.8
+            pest_laravel: ^3.2
+          - php: 8.3
+            laravel: 11.*
+            testbench: 9.*
+            pest: ^3.8
+            pest_laravel: ^3.2
+          - php: 8.3
+            laravel: 12.*
+            testbench: 10.*
+            pest: ^3.8
+            pest_laravel: ^3.2
+          - php: 8.4
+            laravel: 12.*
+            testbench: 10.*
+            pest: ^3.8
+            pest_laravel: ^3.2
+          - php: 8.4
+            laravel: 13.*
+            testbench: 11.*
+            pest: ^4.4
+            pest_laravel: ^4.1
+
+    name: PHP ${{ matrix.php }} - Laravel ${{ matrix.laravel }} - Testbench ${{ matrix.testbench }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: dom, curl, libxml, mbstring, zip, sqlite3
+          coverage: none
+
+      - name: Install dependencies
+        run: |
+          composer require "illuminate/contracts:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" "pestphp/pest:${{ matrix.pest }}" "pestphp/pest-plugin-laravel:${{ matrix.pest_laravel }}" --dev --no-interaction --no-update
+          composer update -W --prefer-dist --no-interaction --no-progress
+
+      - name: Run Pint
+        run: vendor/bin/pint --test src/ tests/ config/ database/ routes/
+
+      - name: Run PHPStan
+        run: vendor/bin/phpstan analyse --memory-limit=512M
+
+      - name: Run Pest
+        run: vendor/bin/pest --parallel

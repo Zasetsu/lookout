@@ -1,0 +1,15 @@
+/vendor
+/node_modules
+composer.lock
+package-lock.json
+.DS_Store
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.phpunit.result.cache
+resources/dist/.DS_Store
+sandbox/vendor
+sandbox/node_modules
+sandbox/.env
+.PROJECT_SPEC.md.swp
+.sisyphus/
