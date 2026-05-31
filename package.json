@@ -2,7 +2,7 @@
     "private": true,
     "scripts": {
         "build": "npm run build:css && npm run build:js",
-        "build:css": "npx tailwindcss -i ./resources/css/lookout.css -o ./resources/dist/lookout.css --minify",
+    "build:css": "BROWSERSLIST_IGNORE_OLD_DATA=1 npx tailwindcss -i ./resources/css/lookout.css -o ./resources/dist/lookout.css --minify",
         "build:js": "node -e \"require('fs').mkdirSync('resources/dist', { recursive: true }); require('fs').copyFileSync('resources/js/lookout.js', 'resources/dist/lookout.js')\"",
         "dev": "npx tailwindcss -i ./resources/css/lookout.css -o ./resources/dist/lookout.css --watch"
     },
