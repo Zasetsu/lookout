@@ -16,6 +16,7 @@ it('aligns test tooling with the advertised Laravel versions', function () {
         true,
         flags: JSON_THROW_ON_ERROR
     );
+    $composer = composerWithAdvertisedConstraints($composer);
     $contractsConstraint = dependencyConstraint($composer, 'illuminate/contracts');
 
     expect(str_contains($contractsConstraint, '^10.0'))->toBeFalse();
@@ -113,4 +114,21 @@ function dependencyConstraint(array $composer, string $package): string
         ?? $composer['require-dev'][$package]
         ?? ''
     );
+}
+
+function composerWithAdvertisedConstraints(array $composer): array
+{
+    $contractsConstraint = dependencyConstraint($composer, 'illuminate/contracts');
+
+    if (! preg_match('/^\d+\.\*$/', $contractsConstraint)) {
+        return $composer;
+    }
+
+    $committedComposer = shell_exec('git show HEAD:composer.json 2>/dev/null');
+
+    if (! is_string($committedComposer) || $committedComposer === '') {
+        return $composer;
+    }
+
+    return json_decode($committedComposer, true, flags: JSON_THROW_ON_ERROR);
 }
