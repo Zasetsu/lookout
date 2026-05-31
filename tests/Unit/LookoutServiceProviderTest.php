@@ -139,6 +139,8 @@ class FailingIngestStorageFake implements StorageContract
         return false;
     }
 
+    public function releaseThresholdDispatchSlot(int $thresholdId, ?string $previousLastTriggeredAt, ?string $expectedLastTriggeredAt = null): void {}
+
     public function getEventsByType(string $eventType, array $filters = [], int $limit = 25, int $offset = 0): array
     {
         return [];

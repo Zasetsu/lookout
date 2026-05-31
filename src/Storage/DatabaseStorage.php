@@ -636,26 +636,37 @@ class DatabaseStorage implements StorageContract
 
     protected function outgoingHttpFailureCount(string $since): float
     {
-        $events = $this->table('lookout_events')
+        $query = $this->table('lookout_events')
             ->where('event_type', 'outgoing_http')
-            ->where('timestamp', '>=', $since)
-            ->pluck('payload');
+            ->where('timestamp', '>=', $since);
 
-        $failures = 0;
+        $driver = $this->storageConnection()->getDriverName();
 
-        foreach ($events as $payload) {
-            $decoded = is_string($payload) ? json_decode($payload, true) : null;
-
-            if (! is_array($decoded)) {
-                continue;
-            }
-
-            if (($decoded['failed'] ?? false) === true || (int) ($decoded['response_status'] ?? 0) >= 400) {
-                $failures++;
-            }
+        if ($driver === 'pgsql') {
+            return (float) $query
+                ->where(function (Builder $query) {
+                    $query->whereRaw("(payload::jsonb ->> 'failed') = 'true'")
+                        ->orWhereRaw("((payload::jsonb ->> 'response_status') ~ '^[0-9]+$' AND (payload::jsonb ->> 'response_status')::integer >= 400)");
+                })
+                ->count();
         }
 
-        return (float) $failures;
+        if (in_array($driver, ['mysql', 'mariadb'], true)) {
+            return (float) $query
+                ->where(function (Builder $query) {
+                    $query->whereRaw("CASE WHEN JSON_VALID(payload) THEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.failed')) ELSE NULL END = 'true'")
+                        ->orWhereRaw("CAST(CASE WHEN JSON_VALID(payload) THEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.response_status')) ELSE '0' END AS UNSIGNED) >= 400");
+                })
+                ->count();
+        }
+
+        return (float) $query
+            ->whereRaw('json_valid(payload) = 1')
+            ->where(function (Builder $query) {
+                $query->whereRaw("json_extract(payload, '$.failed') = 1")
+                    ->orWhereRaw("CAST(json_extract(payload, '$.response_status') AS INTEGER) >= 400");
+            })
+            ->count();
     }
 
     public function claimThresholdDispatchSlot(int $thresholdId, int $cooldownMinutes): bool
@@ -673,6 +684,21 @@ class DatabaseStorage implements StorageContract
                 'last_triggered_at' => $claimedAt,
                 'updated_at' => $claimedAt,
             ]) > 0;
+    }
+
+    public function releaseThresholdDispatchSlot(int $thresholdId, ?string $previousLastTriggeredAt, ?string $expectedLastTriggeredAt = null): void
+    {
+        $query = $this->table('lookout_thresholds')
+            ->where('id', $thresholdId);
+
+        if ($expectedLastTriggeredAt !== null) {
+            $query->where('last_triggered_at', $expectedLastTriggeredAt);
+        }
+
+        $query->update([
+            'last_triggered_at' => $previousLastTriggeredAt,
+            'updated_at' => now()->toDateTimeString(),
+        ]);
     }
 
     public function getEventsByType(string $eventType, array $filters = [], int $limit = 25, int $offset = 0): array

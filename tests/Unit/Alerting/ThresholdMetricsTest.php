@@ -79,4 +79,34 @@ describe('Threshold metrics', function () {
         expect(app(DatabaseStorage::class)->getThresholdMetricValue('outgoing_http_failure_count', 15))
             ->toBe(2.0);
     });
+
+    it('counts outgoing http failures without selecting every payload into PHP', function () {
+        insertMetricTrace('00000000-0000-0000-0000-000000000301');
+
+        foreach (range(1, 40) as $index) {
+            insertMetricEvent('00000000-0000-0000-0000-000000000301', [
+                'failed' => false,
+                'response_status' => 200,
+            ]);
+        }
+
+        insertMetricEvent('00000000-0000-0000-0000-000000000301', ['failed' => true]);
+        insertMetricEvent('00000000-0000-0000-0000-000000000301', ['response_status' => 404]);
+        insertMetricEvent('00000000-0000-0000-0000-000000000301', ['response_status' => 503]);
+
+        DB::connection('lookout')->flushQueryLog();
+        DB::connection('lookout')->enableQueryLog();
+
+        expect(app(DatabaseStorage::class)->getThresholdMetricValue('outgoing_http_failure_count', 15))
+            ->toBe(3.0);
+
+        $queries = collect(DB::connection('lookout')->getQueryLog())
+            ->pluck('query')
+            ->map(fn (string $query): string => strtolower($query));
+
+        DB::connection('lookout')->disableQueryLog();
+
+        expect($queries->contains(fn (string $query): bool => str_contains($query, 'select "payload"') && str_contains($query, 'from "lookout_events"')))
+            ->toBeFalse();
+    });
 });

@@ -26,8 +26,15 @@ class ThresholdEvaluator
             $threshold = (object) $threshold;
 
             if ($this->dryRun($threshold)->triggered) {
+                $previousLastTriggeredAt = $this->thresholdLastTriggeredAt($threshold);
+
                 if ($this->claimDispatchSlot($threshold)) {
-                    $this->dispatchAlert($threshold);
+                    $claimedLastTriggeredAt = $this->claimedLastTriggeredAt($threshold);
+                    $deliveries = $this->dispatchAlert($threshold);
+
+                    if (! $this->hasSentDelivery($deliveries)) {
+                        $this->storage->releaseThresholdDispatchSlot((int) $threshold->id, $previousLastTriggeredAt, $claimedLastTriggeredAt);
+                    }
                 }
                 $triggered[] = $threshold;
             }
@@ -73,6 +80,8 @@ class ThresholdEvaluator
             ];
         }
 
+        $previousLastTriggeredAt = $this->thresholdLastTriggeredAt($threshold);
+
         if (! $this->claimDispatchSlot($threshold)) {
             return [
                 'dispatched' => false,
@@ -81,12 +90,14 @@ class ThresholdEvaluator
             ];
         }
 
+        $claimedLastTriggeredAt = $this->claimedLastTriggeredAt($threshold);
         $deliveries = $this->dispatchAlert($threshold, [
             'current_value' => $result->currentValue,
         ]);
-        $sent = collect($deliveries)->contains(fn (array $delivery): bool => $delivery['status'] === 'sent');
 
-        if (! $sent) {
+        if (! $this->hasSentDelivery($deliveries)) {
+            $this->storage->releaseThresholdDispatchSlot((int) $threshold->id, $previousLastTriggeredAt, $claimedLastTriggeredAt);
+
             return [
                 'dispatched' => false,
                 'reason' => 'delivery_failed',
@@ -182,6 +193,14 @@ class ThresholdEvaluator
         return $deliveries;
     }
 
+    /**
+     * @param  array<int, array<string, string|null>>  $deliveries
+     */
+    protected function hasSentDelivery(array $deliveries): bool
+    {
+        return collect($deliveries)->contains(fn (array $delivery): bool => $delivery['status'] === 'sent');
+    }
+
     protected function safeDeliveryError(\Throwable $e): string
     {
         if ($e instanceof RequestException) {
@@ -248,6 +267,30 @@ class ThresholdEvaluator
         $threshold->channels ??= [];
 
         return $threshold;
+    }
+
+    protected function claimedLastTriggeredAt(object $threshold): ?string
+    {
+        $rule = $this->storage->getThresholdRule((int) $threshold->id);
+
+        return $this->thresholdLastTriggeredAt($rule ?? $threshold);
+    }
+
+    protected function thresholdLastTriggeredAt(array|object|null $threshold): ?string
+    {
+        if ($threshold === null) {
+            return null;
+        }
+
+        $value = is_array($threshold)
+            ? ($threshold['last_triggered_at'] ?? null)
+            : ($threshold->last_triggered_at ?? null);
+
+        if ($value instanceof \DateTimeInterface) {
+            return $value->format('Y-m-d H:i:s');
+        }
+
+        return is_string($value) && $value !== '' ? $value : null;
     }
 
     protected function thresholdWindowMinutes(object $threshold): int

@@ -171,6 +171,22 @@ class ThresholdEvaluatorStorageFake implements StorageContract
             ]) > 0;
     }
 
+    public function releaseThresholdDispatchSlot(int $thresholdId, ?string $previousLastTriggeredAt, ?string $expectedLastTriggeredAt = null): void
+    {
+        $query = DB::connection('lookout')
+            ->table('lookout_thresholds')
+            ->where('id', $thresholdId);
+
+        if ($expectedLastTriggeredAt !== null) {
+            $query->where('last_triggered_at', $expectedLastTriggeredAt);
+        }
+
+        $query->update([
+            'last_triggered_at' => $previousLastTriggeredAt,
+            'updated_at' => now()->toDateTimeString(),
+        ]);
+    }
+
     public function getEventsByType(string $eventType, array $filters = [], int $limit = 25, int $offset = 0): array
     {
         return [];
@@ -361,6 +377,41 @@ describe('ThresholdEvaluator', function () {
             ->and($result['deliveries'])->toBe([
                 ['channel' => 'webhook', 'status' => 'failed', 'error' => 'RuntimeException while sending alert channel.'],
             ]);
+    });
+
+    it('does not leave a failed manual dispatch inside cooldown', function () {
+        app()->instance(WebhookChannel::class, new FailingWebhookChannel);
+
+        $storage = new ThresholdEvaluatorStorageFake;
+        $storage->metricValues['exception_count'] = 6.0;
+
+        $now = now()->toDateTimeString();
+        $rule = [
+            'name' => 'High exceptions',
+            'metric' => 'exception_count',
+            'condition' => 'gte',
+            'value' => 5,
+            'window_minutes' => 15,
+            'cooldown_minutes' => 15,
+            'channels' => json_encode(['webhook']),
+            'enabled' => true,
+            'last_triggered_at' => null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ];
+
+        $id = DB::connection('lookout')->table('lookout_thresholds')->insertGetId($rule);
+
+        $result = (new ThresholdEvaluator($storage))->dispatchManually((object) array_merge($rule, [
+            'id' => $id,
+            'channels' => ['webhook'],
+        ]));
+
+        $row = DB::connection('lookout')->table('lookout_thresholds')->where('id', $id)->first();
+
+        expect($result['dispatched'])->toBeFalse()
+            ->and($result['reason'])->toBe('delivery_failed')
+            ->and($row->last_triggered_at)->toBeNull();
     });
 
     it('skips unconfigured channels instead of reporting them as sent', function () {
