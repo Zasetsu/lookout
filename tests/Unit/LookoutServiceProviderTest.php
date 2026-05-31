@@ -99,12 +99,42 @@ class FailingIngestStorageFake implements StorageContract
         return [];
     }
 
+    public function getThresholdRules(array $filters = [], int $limit = 50, int $offset = 0): array
+    {
+        return ['data' => [], 'total' => 0];
+    }
+
+    public function getThresholdRule(int $ruleId): ?array
+    {
+        return null;
+    }
+
+    public function createThresholdRule(array $attributes): array
+    {
+        return $attributes;
+    }
+
+    public function updateThresholdRule(int $ruleId, array $attributes): array
+    {
+        return $attributes;
+    }
+
+    public function setThresholdRuleEnabled(int $ruleId, bool $enabled): array
+    {
+        return ['enabled' => $enabled];
+    }
+
+    public function deleteThresholdRule(int $ruleId): bool
+    {
+        return false;
+    }
+
     public function getThresholdMetricValue(string $metric, int $windowMinutes): float
     {
         return 0.0;
     }
 
-    public function claimThresholdDispatchSlot(int $thresholdId, int $windowMinutes): bool
+    public function claimThresholdDispatchSlot(int $thresholdId, int $cooldownMinutes): bool
     {
         return false;
     }

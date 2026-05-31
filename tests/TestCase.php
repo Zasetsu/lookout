@@ -13,6 +13,7 @@ class TestCase extends BaseTestCase
         'create_lookout_events_table.php',
         'create_lookout_exception_groups_table.php',
         'create_lookout_thresholds_table.php',
+        'add_cooldown_minutes_to_lookout_thresholds_table.php',
         'create_lookout_audit_log_table.php',
     ];
 
@@ -63,14 +64,11 @@ class TestCase extends BaseTestCase
 
     protected function defineDatabaseMigrations()
     {
+        $connection = (string) config('lookout.storage.connection', 'lookout');
+
         if (config('lookout.storage.driver', 'sqlite') !== 'sqlite') {
-            $connection = (string) config('lookout.storage.connection', 'lookout');
-
             $this->resetExternalLookoutTables($connection);
-
-            foreach (self::LOOKOUT_MIGRATIONS as $migration) {
-                (require __DIR__.'/../database/migrations/'.$migration)->up();
-            }
+            $this->runLookoutMigrations();
 
             $this->beforeApplicationDestroyed(
                 fn () => $this->resetExternalLookoutTables($connection)
@@ -79,7 +77,14 @@ class TestCase extends BaseTestCase
             return;
         }
 
-        $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
+        $this->runLookoutMigrations();
+    }
+
+    protected function runLookoutMigrations(): void
+    {
+        foreach (self::LOOKOUT_MIGRATIONS as $migration) {
+            (require __DIR__.'/../database/migrations/'.$migration)->up();
+        }
     }
 
     protected function resetExternalLookoutTables(string $connection): void

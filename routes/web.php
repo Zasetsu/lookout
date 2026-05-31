@@ -30,6 +30,15 @@ Route::prefix(config('lookout.dashboard.path', 'lookout'))
         Route::get('/logs', [DashboardController::class, 'logs'])->name('lookout.logs');
         Route::get('/outgoing', [DashboardController::class, 'outgoing'])->name('lookout.outgoing');
         Route::get('/alerts', [DashboardController::class, 'alerts'])->name('lookout.alerts');
+        Route::get('/alerts/rules/create', [DashboardController::class, 'createThresholdRule'])->name('lookout.alerts.rules.create');
+        Route::post('/alerts/rules', [DashboardController::class, 'storeThresholdRule'])->name('lookout.alerts.rules.store');
+        Route::get('/alerts/rules/{ruleId}/edit', [DashboardController::class, 'editThresholdRule'])->whereNumber('ruleId')->name('lookout.alerts.rules.edit');
+        Route::match(['put', 'patch'], '/alerts/rules/{ruleId}', [DashboardController::class, 'updateThresholdRule'])->whereNumber('ruleId')->name('lookout.alerts.rules.update');
+        Route::post('/alerts/rules/{ruleId}/toggle', [DashboardController::class, 'toggleThresholdRule'])->whereNumber('ruleId')->name('lookout.alerts.rules.toggle');
+        Route::delete('/alerts/rules/{ruleId}', [DashboardController::class, 'deleteThresholdRule'])->whereNumber('ruleId')->name('lookout.alerts.rules.delete');
+        Route::post('/alerts/rules/{ruleId}/evaluate', [DashboardController::class, 'evaluateThresholdRule'])->whereNumber('ruleId')->name('lookout.alerts.rules.evaluate');
+        Route::post('/alerts/rules/{ruleId}/dispatch', [DashboardController::class, 'dispatchThresholdRule'])->whereNumber('ruleId')->name('lookout.alerts.rules.dispatch');
+        Route::post('/alerts/channels/{channel}/test', [DashboardController::class, 'testAlertChannel'])->whereIn('channel', ['email', 'slack', 'webhook'])->name('lookout.alerts.channels.test');
         Route::get('/audit', [DashboardController::class, 'audit'])->name('lookout.audit');
         Route::get('/audit/export', [DashboardController::class, 'exportAudit'])->name('lookout.audit-export');
         Route::get('/health', [DashboardController::class, 'health'])->name('lookout.health');

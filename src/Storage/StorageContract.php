@@ -44,9 +44,21 @@ interface StorageContract
 
     public function getEnabledThresholds(): array;
 
+    public function getThresholdRules(array $filters = [], int $limit = 50, int $offset = 0): array;
+
+    public function getThresholdRule(int $ruleId): ?array;
+
+    public function createThresholdRule(array $attributes): array;
+
+    public function updateThresholdRule(int $ruleId, array $attributes): array;
+
+    public function setThresholdRuleEnabled(int $ruleId, bool $enabled): array;
+
+    public function deleteThresholdRule(int $ruleId): bool;
+
     public function getThresholdMetricValue(string $metric, int $windowMinutes): float;
 
-    public function claimThresholdDispatchSlot(int $thresholdId, int $windowMinutes): bool;
+    public function claimThresholdDispatchSlot(int $thresholdId, int $cooldownMinutes): bool;
 
     public function getEventsByType(string $eventType, array $filters = [], int $limit = 25, int $offset = 0): array;
 

@@ -4,6 +4,9 @@ namespace Zasetsu\Lookout\Http\Controllers\Dashboard;
 
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Validation\Rule;
+use Zasetsu\Lookout\Alerting\AlertChannelTester;
+use Zasetsu\Lookout\Alerting\ThresholdEvaluator;
 use Zasetsu\Lookout\Http\Concerns\NormalizesFilterInput;
 use Zasetsu\Lookout\Http\Middleware\Authorize;
 use Zasetsu\Lookout\Http\Middleware\BasicAuth;
@@ -15,6 +18,20 @@ use Zasetsu\Lookout\Storage\StorageContract;
 class DashboardController extends Controller
 {
     use NormalizesFilterInput;
+
+    private const THRESHOLD_METRICS = [
+        'request_duration',
+        'request_duration_p95',
+        'exception_count',
+        'slow_query_count',
+        'failed_job_count',
+        'error_rate',
+        'outgoing_http_failure_count',
+    ];
+
+    private const THRESHOLD_CONDITIONS = ['gt', 'gte', 'lt', 'lte', 'eq'];
+
+    private const ALERT_CHANNELS = ['email', 'slack', 'webhook'];
 
     public function __construct(
         private StorageContract $storage,
@@ -379,15 +396,134 @@ class DashboardController extends Controller
         ]);
     }
 
-    public function alerts()
+    public function alerts(Request $request)
     {
-        $result = $this->storage->getAuditLog(['action' => 'threshold_triggered'], 50, 0);
+        $tab = $request->query('tab', 'rules');
+        $activeTab = is_string($tab) && in_array($tab, ['rules', 'history', 'delivery'], true) ? $tab : 'rules';
+        $history = $this->storage->getAuditLog(['action' => 'threshold_triggered'], 50, 0);
+        $rules = $this->storage->getThresholdRules([], 50, 0);
 
         return view('lookout::alerts.index', [
             'title' => 'Alerts',
-            'entries' => $result['data'],
-            'total' => $result['total'],
+            'activeTab' => $activeTab,
+            'entries' => $history['data'],
+            'total' => $history['total'],
+            'rules' => $rules['data'],
+            'rulesTotal' => $rules['total'],
+            'metrics' => $this->thresholdMetricLabels(),
+            'conditions' => $this->thresholdConditionLabels(),
+            'channels' => $this->alertChannelState(),
         ]);
+    }
+
+    public function createThresholdRule()
+    {
+        return view('lookout::alerts.rules.create', [
+            'title' => 'Create threshold rule',
+            'rule' => [
+                'name' => '',
+                'metric' => 'request_duration_p95',
+                'condition' => 'gte',
+                'value' => '',
+                'window_minutes' => 15,
+                'cooldown_minutes' => 15,
+                'channels' => [],
+                'enabled' => true,
+            ],
+            'metrics' => $this->thresholdMetricLabels(),
+            'conditions' => $this->thresholdConditionLabels(),
+            'channels' => $this->alertChannelState(),
+        ]);
+    }
+
+    public function storeThresholdRule(Request $request)
+    {
+        $rule = $this->storage->createThresholdRule($this->thresholdRuleInput($request));
+
+        $this->auditThresholdRule('threshold_rule_created', $rule);
+
+        return redirect()->route('lookout.alerts')->with('success', 'Threshold rule created.');
+    }
+
+    public function editThresholdRule(int $ruleId)
+    {
+        $rule = $this->findThresholdRule($ruleId);
+
+        return view('lookout::alerts.rules.edit', [
+            'title' => 'Edit threshold rule',
+            'rule' => $rule,
+            'metrics' => $this->thresholdMetricLabels(),
+            'conditions' => $this->thresholdConditionLabels(),
+            'channels' => $this->alertChannelState(),
+        ]);
+    }
+
+    public function updateThresholdRule(Request $request, int $ruleId)
+    {
+        $this->findThresholdRule($ruleId);
+
+        $rule = $this->storage->updateThresholdRule($ruleId, $this->thresholdRuleInput($request));
+
+        $this->auditThresholdRule('threshold_rule_updated', $rule);
+
+        return redirect()->route('lookout.alerts')->with('success', 'Threshold rule updated.');
+    }
+
+    public function toggleThresholdRule(int $ruleId)
+    {
+        $rule = $this->findThresholdRule($ruleId);
+        $enabled = ! (bool) ($rule['enabled'] ?? false);
+        $updated = $this->storage->setThresholdRuleEnabled($ruleId, $enabled);
+
+        $this->auditThresholdRule($enabled ? 'threshold_rule_enabled' : 'threshold_rule_disabled', $updated);
+
+        return redirect()->route('lookout.alerts')->with('success', $enabled ? 'Threshold rule enabled.' : 'Threshold rule disabled.');
+    }
+
+    public function deleteThresholdRule(int $ruleId)
+    {
+        $rule = $this->findThresholdRule($ruleId);
+
+        $this->storage->deleteThresholdRule($ruleId);
+        $this->auditThresholdRule('threshold_rule_deleted', $rule);
+
+        return redirect()->route('lookout.alerts')->with('success', 'Threshold rule deleted.');
+    }
+
+    public function evaluateThresholdRule(int $ruleId)
+    {
+        $rule = $this->findThresholdRule($ruleId);
+        $result = app(ThresholdEvaluator::class)->dryRun($rule)->toArray();
+
+        $this->auditThresholdRule('threshold_rule_evaluated', $rule, ['result' => $result]);
+
+        return redirect()->route('lookout.alerts')->with('success', $result['triggered'] ? 'Threshold condition is currently met.' : 'Threshold condition is not currently met.');
+    }
+
+    public function dispatchThresholdRule(int $ruleId)
+    {
+        $rule = $this->findThresholdRule($ruleId);
+        $result = app(ThresholdEvaluator::class)->dispatchManually($rule);
+
+        $this->auditThresholdRule('threshold_rule_dispatched', $rule, ['result' => $result]);
+
+        return redirect()->route('lookout.alerts')->with('success', 'Manual dispatch finished: '.$result['reason'].'.');
+    }
+
+    public function testAlertChannel(string $channel)
+    {
+        if (! in_array($channel, self::ALERT_CHANNELS, true)) {
+            abort(404);
+        }
+
+        $result = app(AlertChannelTester::class)->test($channel);
+
+        $this->auditDashboardMutation('threshold_channel_tested', [
+            'channel' => $channel,
+            'result' => $result,
+        ]);
+
+        return redirect()->route('lookout.alerts')->with('success', 'Channel test finished: '.$result['status'].'.');
     }
 
     public function audit(Request $request)
@@ -492,5 +628,162 @@ class DashboardController extends Controller
         fclose($handle);
 
         return is_string($contents) ? $contents : '';
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function thresholdRuleInput(Request $request): array
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:100'],
+            'metric' => ['required', 'string', Rule::in(self::THRESHOLD_METRICS)],
+            'condition' => ['required', 'string', Rule::in(self::THRESHOLD_CONDITIONS)],
+            'value' => ['required', 'numeric'],
+            'window_minutes' => ['required', 'integer', 'min:1', 'max:1440'],
+            'cooldown_minutes' => ['required', 'integer', 'min:1', 'max:10080'],
+            'channels' => ['array'],
+            'channels.*' => ['string', Rule::in($this->configuredAlertChannels())],
+            'enabled' => ['boolean'],
+        ]);
+
+        return [
+            'name' => $validated['name'],
+            'metric' => $validated['metric'],
+            'condition' => $validated['condition'],
+            'value' => (float) $validated['value'],
+            'window_minutes' => (int) $validated['window_minutes'],
+            'cooldown_minutes' => (int) $validated['cooldown_minutes'],
+            'channels' => array_values($validated['channels'] ?? []),
+            'enabled' => $request->boolean('enabled'),
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    protected function thresholdMetricLabels(): array
+    {
+        return [
+            'request_duration' => 'Average request duration',
+            'request_duration_p95' => 'Request p95 duration',
+            'exception_count' => 'Exception count',
+            'slow_query_count' => 'Slow query count',
+            'failed_job_count' => 'Failed job count',
+            'error_rate' => 'Error rate',
+            'outgoing_http_failure_count' => 'Outgoing HTTP failures',
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    protected function thresholdConditionLabels(): array
+    {
+        return [
+            'gt' => '>',
+            'gte' => '>=',
+            'lt' => '<',
+            'lte' => '<=',
+            'eq' => '=',
+        ];
+    }
+
+    /**
+     * @return array<string, array{label: string, configured: bool, destination: string|null}>
+     */
+    protected function alertChannelState(): array
+    {
+        $labels = [
+            'email' => 'Email',
+            'slack' => 'Slack',
+            'webhook' => 'Webhook',
+        ];
+
+        $channels = [];
+
+        foreach ($labels as $name => $label) {
+            $destination = config("lookout.alerting.channels.{$name}");
+            $channels[$name] = [
+                'label' => $label,
+                'configured' => ! empty($destination),
+                'destination' => is_string($destination) ? $this->maskedAlertDestination($destination) : null,
+            ];
+        }
+
+        return $channels;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    protected function configuredAlertChannels(): array
+    {
+        return array_keys(array_filter(
+            $this->alertChannelState(),
+            fn (array $channel): bool => $channel['configured'],
+        ));
+    }
+
+    protected function maskedAlertDestination(string $destination): string
+    {
+        if (filter_var($destination, FILTER_VALIDATE_EMAIL)) {
+            [$local, $domain] = explode('@', $destination, 2);
+            $prefix = substr($local, 0, 2);
+
+            return $prefix.'***@'.$domain;
+        }
+
+        $parts = parse_url($destination);
+
+        if (is_array($parts) && isset($parts['scheme'], $parts['host'])) {
+            return $parts['scheme'].'://'.$parts['host'].'/.../****';
+        }
+
+        return 'configured';
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function findThresholdRule(int $ruleId): array
+    {
+        $rule = $this->storage->getThresholdRule($ruleId);
+
+        if ($rule === null) {
+            abort(404);
+        }
+
+        return $rule;
+    }
+
+    /**
+     * @param  array<string, mixed>  $rule
+     * @param  array<string, mixed>  $extra
+     */
+    protected function auditThresholdRule(string $action, array $rule, array $extra = []): void
+    {
+        $this->auditDashboardMutation($action, array_merge([
+            'rule_id' => (int) ($rule['id'] ?? 0),
+            'name' => (string) ($rule['name'] ?? ''),
+            'metric' => (string) ($rule['metric'] ?? ''),
+            'enabled' => (bool) ($rule['enabled'] ?? false),
+        ], $extra));
+    }
+
+    /**
+     * @param  array<string, mixed>  $details
+     */
+    protected function auditDashboardMutation(string $action, array $details): void
+    {
+        $request = request();
+        $userId = $request->user()?->getAuthIdentifier();
+
+        $this->storage->logAudit(
+            $action,
+            $userId !== null ? (string) $userId : null,
+            $request->ip(),
+            $details,
+        );
     }
 }

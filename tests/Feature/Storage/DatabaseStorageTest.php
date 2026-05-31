@@ -28,6 +28,20 @@ function makeDatabaseStorageTraceContext(string $traceId, array $overrides = [])
     ], $overrides);
 }
 
+function makeDatabaseThresholdRuleAttributes(array $overrides = []): array
+{
+    return array_merge([
+        'name' => 'Database high exceptions',
+        'metric' => 'exception_count',
+        'condition' => 'gte',
+        'value' => 3,
+        'window_minutes' => 15,
+        'cooldown_minutes' => 45,
+        'channels' => ['mail', 'webhook'],
+        'enabled' => true,
+    ], $overrides);
+}
+
 describe('DatabaseStorage', function () {
     beforeEach(function () {
         config([
@@ -81,5 +95,58 @@ describe('DatabaseStorage', function () {
 
         expect($this->storage->claimThresholdDispatchSlot($thresholdId, 15))->toBeTrue()
             ->and($this->storage->claimThresholdDispatchSlot($thresholdId, 15))->toBeFalse();
+    });
+
+    it('persists threshold rule CRUD through the generic SQL implementation', function () {
+        $created = $this->storage->createThresholdRule(makeDatabaseThresholdRuleAttributes());
+
+        expect($created['channels'])->toBe(['mail', 'webhook'])
+            ->and($created['enabled'])->toBeTrue()
+            ->and($created['cooldown_minutes'])->toBe(45);
+
+        $listed = $this->storage->getThresholdRules(['enabled' => true], 10, 0);
+
+        expect($listed['total'])->toBe(1)
+            ->and($listed['data'][0]['id'])->toBe($created['id']);
+
+        $updated = $this->storage->updateThresholdRule($created['id'], [
+            'channels' => ['slack'],
+            'enabled' => false,
+            'cooldown_minutes' => 5,
+        ]);
+
+        expect($updated['channels'])->toBe(['slack'])
+            ->and($updated['enabled'])->toBeFalse()
+            ->and($updated['cooldown_minutes'])->toBe(5);
+
+        expect($this->storage->setThresholdRuleEnabled($created['id'], true)['enabled'])->toBeTrue()
+            ->and($this->storage->deleteThresholdRule($created['id']))->toBeTrue()
+            ->and($this->storage->getThresholdRule($created['id']))->toBeNull();
+    });
+
+    it('uses threshold cooldown minutes as the dispatch slot window', function () {
+        $rule = $this->storage->createThresholdRule(makeDatabaseThresholdRuleAttributes([
+            'cooldown_minutes' => 45,
+        ]));
+
+        expect($this->storage->claimThresholdDispatchSlot($rule['id'], 45))->toBeTrue();
+
+        DB::connection('lookout')
+            ->table('lookout_thresholds')
+            ->where('id', $rule['id'])
+            ->update([
+                'last_triggered_at' => now()->subMinutes(44)->toDateTimeString(),
+            ]);
+
+        expect($this->storage->claimThresholdDispatchSlot($rule['id'], 45))->toBeFalse();
+
+        DB::connection('lookout')
+            ->table('lookout_thresholds')
+            ->where('id', $rule['id'])
+            ->update([
+                'last_triggered_at' => now()->subMinutes(46)->toDateTimeString(),
+            ]);
+
+        expect($this->storage->claimThresholdDispatchSlot($rule['id'], 45))->toBeTrue();
     });
 });

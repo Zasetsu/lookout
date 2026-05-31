@@ -37,6 +37,7 @@ class LookoutServiceProvider extends PackageServiceProvider
                 'create_lookout_events_table',
                 'create_lookout_exception_groups_table',
                 'create_lookout_thresholds_table',
+                'add_cooldown_minutes_to_lookout_thresholds_table',
                 'create_lookout_audit_log_table',
             ])
             ->hasCommands([

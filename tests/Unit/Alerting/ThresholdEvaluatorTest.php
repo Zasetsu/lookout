@@ -11,6 +11,14 @@ class ThresholdEvaluatorStorageFake implements StorageContract
 {
     public array $auditLog = [];
 
+    public array $metricValues = [
+        'exception_count' => 1.0,
+    ];
+
+    public array $claimedCooldowns = [];
+
+    public array $claimResults = [];
+
     public function storeTrace(array $context): void {}
 
     public function storeEvents(string $traceId, array $events): void {}
@@ -104,17 +112,50 @@ class ThresholdEvaluatorStorageFake implements StorageContract
             ->all();
     }
 
-    public function getThresholdMetricValue(string $metric, int $windowMinutes): float
+    public function getThresholdRules(array $filters = [], int $limit = 50, int $offset = 0): array
     {
-        return match ($metric) {
-            'exception_count' => 1.0,
-            default => 0.0,
-        };
+        return ['data' => [], 'total' => 0];
     }
 
-    public function claimThresholdDispatchSlot(int $thresholdId, int $windowMinutes): bool
+    public function getThresholdRule(int $ruleId): ?array
     {
-        $cooldown = now()->subMinutes(max($windowMinutes, 15))->toDateTimeString();
+        return null;
+    }
+
+    public function createThresholdRule(array $attributes): array
+    {
+        return $attributes;
+    }
+
+    public function updateThresholdRule(int $ruleId, array $attributes): array
+    {
+        return $attributes;
+    }
+
+    public function setThresholdRuleEnabled(int $ruleId, bool $enabled): array
+    {
+        return ['enabled' => $enabled];
+    }
+
+    public function deleteThresholdRule(int $ruleId): bool
+    {
+        return false;
+    }
+
+    public function getThresholdMetricValue(string $metric, int $windowMinutes): float
+    {
+        return (float) ($this->metricValues[$metric] ?? 0.0);
+    }
+
+    public function claimThresholdDispatchSlot(int $thresholdId, int $cooldownMinutes): bool
+    {
+        $this->claimedCooldowns[] = $cooldownMinutes;
+
+        if ($this->claimResults !== []) {
+            return (bool) array_shift($this->claimResults);
+        }
+
+        $cooldown = now()->subMinutes(max($cooldownMinutes, 0))->toDateTimeString();
         $claimedAt = now()->toDateTimeString();
 
         return DB::connection('lookout')
@@ -200,7 +241,214 @@ class FailingWebhookChannel implements ChannelContract
     }
 }
 
+beforeEach(function () {
+    config([
+        'lookout.alerting.channels.email' => 'ops@example.test',
+        'lookout.alerting.channels.slack' => 'https://hooks.slack.test/services/test',
+        'lookout.alerting.channels.webhook' => 'https://alerts.example.test/lookout',
+    ]);
+});
+
 describe('ThresholdEvaluator', function () {
+    it('returns a threshold result for dry run evaluations without dispatching', function () {
+        $storage = new ThresholdEvaluatorStorageFake;
+        $storage->metricValues['error_rate'] = 12.5;
+
+        $result = (new ThresholdEvaluator($storage))->dryRun([
+            'id' => 12,
+            'name' => 'Elevated errors',
+            'metric' => 'error_rate',
+            'condition' => 'gte',
+            'value' => 10,
+            'window_minutes' => 5,
+            'cooldown_minutes' => 20,
+            'channels' => ['slack'],
+        ]);
+
+        expect($result->toArray())->toBe([
+            'threshold_id' => 12,
+            'name' => 'Elevated errors',
+            'metric' => 'error_rate',
+            'condition' => 'gte',
+            'threshold_value' => 10.0,
+            'current_value' => 12.5,
+            'window_minutes' => 5,
+            'cooldown_minutes' => 20,
+            'triggered' => true,
+        ])->and($storage->auditLog)->toBe([]);
+    });
+
+    it('returns condition_not_met for manual dispatch when dry run does not trigger', function () {
+        $storage = new ThresholdEvaluatorStorageFake;
+        $storage->metricValues['exception_count'] = 1.0;
+
+        $result = (new ThresholdEvaluator($storage))->dispatchManually((object) [
+            'id' => 13,
+            'name' => 'High exceptions',
+            'metric' => 'exception_count',
+            'condition' => 'gte',
+            'value' => 5,
+            'window_minutes' => 15,
+            'channels' => ['slack'],
+        ]);
+
+        expect($result['dispatched'])->toBeFalse()
+            ->and($result['reason'])->toBe('condition_not_met')
+            ->and($storage->claimedCooldowns)->toBe([]);
+    });
+
+    it('returns cooldown_active for manual dispatch when the cooldown claim is unavailable', function () {
+        $storage = new ThresholdEvaluatorStorageFake;
+        $storage->metricValues['exception_count'] = 6.0;
+        $storage->claimResults = [false];
+
+        $result = (new ThresholdEvaluator($storage))->dispatchManually((object) [
+            'id' => 14,
+            'name' => 'High exceptions',
+            'metric' => 'exception_count',
+            'condition' => 'gte',
+            'value' => 5,
+            'window_minutes' => 15,
+            'channels' => ['slack'],
+        ]);
+
+        expect($result['dispatched'])->toBeFalse()
+            ->and($result['reason'])->toBe('cooldown_active');
+    });
+
+    it('dispatches manually when the condition matches and cooldown claim succeeds', function () {
+        app()->instance(SlackChannel::class, new SuccessfulSlackChannel);
+
+        $storage = new ThresholdEvaluatorStorageFake;
+        $storage->metricValues['exception_count'] = 6.0;
+        $storage->claimResults = [true];
+
+        $result = (new ThresholdEvaluator($storage))->dispatchManually((object) [
+            'id' => 15,
+            'name' => 'High exceptions',
+            'metric' => 'exception_count',
+            'condition' => 'gte',
+            'value' => 5,
+            'window_minutes' => 15,
+            'channels' => ['slack'],
+        ]);
+
+        expect($result['dispatched'])->toBeTrue()
+            ->and($result['reason'])->toBe('sent')
+            ->and($storage->auditLog)->toHaveCount(1)
+            ->and($storage->auditLog[0]['action'])->toBe('threshold_triggered');
+    });
+
+    it('reports delivery_failed for manual dispatch when no channel sends', function () {
+        app()->instance(WebhookChannel::class, new FailingWebhookChannel);
+
+        $storage = new ThresholdEvaluatorStorageFake;
+        $storage->metricValues['exception_count'] = 6.0;
+        $storage->claimResults = [true];
+
+        $result = (new ThresholdEvaluator($storage))->dispatchManually((object) [
+            'id' => 15,
+            'name' => 'High exceptions',
+            'metric' => 'exception_count',
+            'condition' => 'gte',
+            'value' => 5,
+            'window_minutes' => 15,
+            'channels' => ['webhook'],
+        ]);
+
+        expect($result['dispatched'])->toBeFalse()
+            ->and($result['reason'])->toBe('delivery_failed')
+            ->and($result['deliveries'])->toBe([
+                ['channel' => 'webhook', 'status' => 'failed', 'error' => 'RuntimeException while sending alert channel.'],
+            ]);
+    });
+
+    it('skips unconfigured channels instead of reporting them as sent', function () {
+        config(['lookout.alerting.channels.slack' => null]);
+        app()->instance(SlackChannel::class, new SuccessfulSlackChannel);
+
+        $storage = new ThresholdEvaluatorStorageFake;
+        $evaluator = new DispatchingThresholdEvaluator($storage);
+
+        $evaluator->dispatch((object) [
+            'id' => 18,
+            'name' => 'High exceptions',
+            'metric' => 'exception_count',
+            'condition' => 'gte',
+            'value' => 5,
+            'window_minutes' => 15,
+            'channels' => ['slack'],
+        ]);
+
+        expect($storage->auditLog[0]['details']['deliveries'])->toBe([
+            ['channel' => 'slack', 'status' => 'skipped'],
+        ]);
+    });
+
+    it('does not persist raw channel exception messages in audit delivery details', function () {
+        app()->instance(WebhookChannel::class, new FailingWebhookChannel);
+
+        $storage = new ThresholdEvaluatorStorageFake;
+        $evaluator = new DispatchingThresholdEvaluator($storage);
+
+        $evaluator->dispatch((object) [
+            'id' => 17,
+            'name' => 'High exceptions',
+            'metric' => 'exception_count',
+            'condition' => 'gte',
+            'value' => 5,
+            'window_minutes' => 15,
+            'channels' => ['webhook'],
+        ]);
+
+        expect($storage->auditLog[0]['details']['deliveries'][0]['error'])
+            ->toBe('RuntimeException while sending alert channel.');
+        expect($storage->auditLog[0]['details']['deliveries'][0]['error'])
+            ->not->toContain('webhook unavailable');
+    });
+
+    it('dispatches for testing with extra context without writing threshold triggered audit logs', function () {
+        app()->instance(SlackChannel::class, new SuccessfulSlackChannel);
+
+        $storage = new ThresholdEvaluatorStorageFake;
+
+        (new ThresholdEvaluator($storage))->dispatchForTesting((object) [
+            'id' => 16,
+            'name' => 'High exceptions',
+            'metric' => 'exception_count',
+            'condition' => 'gte',
+            'value' => 5,
+            'window_minutes' => 15,
+            'channels' => ['slack'],
+        ], ['test' => true]);
+
+        expect($storage->auditLog)->toBe([]);
+    });
+
+    it('uses cooldown minutes, then window minutes, then fifteen minutes for dispatch claims', function () {
+        $storage = new ThresholdEvaluatorStorageFake;
+        $storage->metricValues['exception_count'] = 6.0;
+        $storage->claimResults = [true, true, true];
+
+        $evaluator = new ThresholdEvaluator($storage);
+
+        foreach ([
+            ['id' => 21, 'cooldown_minutes' => 3, 'window_minutes' => 8],
+            ['id' => 22, 'window_minutes' => 8],
+            ['id' => 23],
+        ] as $threshold) {
+            $evaluator->dispatchManually((object) array_merge([
+                'name' => 'High exceptions',
+                'metric' => 'exception_count',
+                'condition' => 'gte',
+                'value' => 5,
+                'channels' => [],
+            ], $threshold));
+        }
+
+        expect($storage->claimedCooldowns)->toBe([3, 8, 15]);
+    });
+
     it('atomically claims a threshold cooldown slot once', function () {
         config(['lookout.storage.connection' => 'lookout']);
 
@@ -245,7 +493,7 @@ describe('ThresholdEvaluator', function () {
             ->and($storage->auditLog[0]['action'])->toBe('threshold_triggered')
             ->and($storage->auditLog[0]['details']['deliveries'])->toBe([
                 ['channel' => 'slack', 'status' => 'sent'],
-                ['channel' => 'webhook', 'status' => 'failed', 'error' => 'webhook unavailable'],
+                ['channel' => 'webhook', 'status' => 'failed', 'error' => 'RuntimeException while sending alert channel.'],
                 ['channel' => 'unknown', 'status' => 'skipped'],
             ]);
     });
