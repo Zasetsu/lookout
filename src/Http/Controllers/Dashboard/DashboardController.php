@@ -82,6 +82,15 @@ class DashboardController extends Controller
             abort(422, 'Invalid filter parameter.');
         }
 
+        $since = $this->normalizeSinceFilter($filters['since'] ?? null);
+        if ($since === false) {
+            abort(422, 'Invalid since parameter.');
+        }
+
+        if ($since !== null) {
+            $filters['since'] = $since;
+        }
+
         $minDuration = $this->optionalIntegerFilter($request, 'min_duration', 1);
         if ($minDuration === false) {
             abort(422, 'Invalid min_duration parameter.');
@@ -390,6 +399,15 @@ class DashboardController extends Controller
 
         if ($filters === false) {
             abort(422, 'Invalid audit filter parameter.');
+        }
+
+        $since = $this->normalizeSinceFilter($filters['since'] ?? null);
+        if ($since === false) {
+            abort(422, 'Invalid since parameter.');
+        }
+
+        if ($since !== null) {
+            $filters['since'] = $since;
         }
 
         $page = $this->integerParameter($request, 'page', 1, 1);

@@ -51,9 +51,9 @@ class ApiController extends Controller
             return response()->json(['message' => 'Invalid since parameter.'], 422);
         }
 
-        $since = $this->normalizeSince((string) $rawSince);
+        $since = $this->normalizeSinceFilter($rawSince);
 
-        if ($since === null) {
+        if ($since === false || $since === null) {
             return response()->json(['message' => 'Invalid since parameter.'], 422);
         }
 
@@ -156,51 +156,6 @@ class ApiController extends Controller
             'data' => $trace,
             'events' => $events,
         ]);
-    }
-
-    protected function normalizeSince(string $since): ?string
-    {
-        if (is_numeric($since)) {
-            if ((float) $since <= 0.0) {
-                return null;
-            }
-
-            return "-{$since} hours";
-        }
-
-        $since = strtolower(trim($since));
-
-        if (preg_match('/^(\d+)\s*h$/', $since, $m)) {
-            if ((int) $m[1] <= 0) {
-                return null;
-            }
-
-            return "-{$m[1]} hours";
-        }
-
-        if (preg_match('/^(\d+)\s*d$/', $since, $m)) {
-            if ((int) $m[1] <= 0) {
-                return null;
-            }
-
-            return "-{$m[1]} days";
-        }
-
-        if (preg_match('/^(\d+)\s*m$/', $since, $m)) {
-            if ((int) $m[1] <= 0) {
-                return null;
-            }
-
-            return "-{$m[1]} minutes";
-        }
-
-        try {
-            now()->parse($since);
-        } catch (\Throwable) {
-            return null;
-        }
-
-        return $since;
     }
 
     protected function normalizeDurationFilter(mixed $value): int|false|null

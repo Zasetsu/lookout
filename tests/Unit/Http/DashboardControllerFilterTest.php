@@ -11,6 +11,8 @@ class DashboardFilterStorageFake implements StorageContract
 
     public ?array $exceptionFilters = null;
 
+    public ?array $auditFilters = null;
+
     public ?int $slowQueryThreshold = null;
 
     public ?int $traceOffset = null;
@@ -89,6 +91,8 @@ class DashboardFilterStorageFake implements StorageContract
 
     public function getAuditLog(array $filters = [], int $limit = 50, int $offset = 0): array
     {
+        $this->auditFilters = $filters;
+
         return ['data' => [], 'total' => 0];
     }
 
@@ -284,5 +288,37 @@ describe('DashboardController filter validation', function () {
             ->and($storage->traceOffset)->toBe(50)
             ->and($storage->traceFilters['min_duration'])->toBe(150)
             ->and($storage->traceFilters['response_status'])->toBe(500);
+    });
+
+    it('rejects invalid dashboard since filters before querying storage', function () {
+        $storage = new DashboardFilterStorageFake;
+        $controller = new DashboardController($storage);
+
+        expectDashboardFilterRejection(fn () => $controller->requests(Request::create('/lookout/requests', 'GET', [
+            'since' => 'not-a-date',
+        ])));
+
+        expectDashboardFilterRejection(fn () => $controller->audit(Request::create('/lookout/audit', 'GET', [
+            'since' => ['24h'],
+        ])));
+
+        expect($storage->traceFilters)->toBeNull()
+            ->and($storage->auditFilters)->toBeNull();
+    });
+
+    it('normalizes valid dashboard since filters before querying storage', function () {
+        $storage = new DashboardFilterStorageFake;
+        $controller = new DashboardController($storage);
+
+        $controller->requests(Request::create('/lookout/requests', 'GET', [
+            'since' => '2h',
+        ]));
+
+        $controller->audit(Request::create('/lookout/audit', 'GET', [
+            'since' => '1d',
+        ]));
+
+        expect($storage->traceFilters['since'])->toBe('-2 hours')
+            ->and($storage->auditFilters['since'])->toBe('-1 days');
     });
 });

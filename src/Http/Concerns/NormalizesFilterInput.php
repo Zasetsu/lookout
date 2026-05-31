@@ -124,4 +124,47 @@ trait NormalizesFilterInput
 
         return $integer;
     }
+
+    protected function normalizeSinceFilter(mixed $value): string|false|null
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (! is_string($value) && ! is_numeric($value)) {
+            return false;
+        }
+
+        $since = (string) $value;
+
+        if (is_numeric($since)) {
+            if ((float) $since <= 0.0) {
+                return false;
+            }
+
+            return "-{$since} hours";
+        }
+
+        $since = strtolower(trim($since));
+
+        if (preg_match('/^(\d+)\s*h$/', $since, $matches)) {
+            return (int) $matches[1] > 0 ? "-{$matches[1]} hours" : false;
+        }
+
+        if (preg_match('/^(\d+)\s*d$/', $since, $matches)) {
+            return (int) $matches[1] > 0 ? "-{$matches[1]} days" : false;
+        }
+
+        if (preg_match('/^(\d+)\s*m$/', $since, $matches)) {
+            return (int) $matches[1] > 0 ? "-{$matches[1]} minutes" : false;
+        }
+
+        try {
+            now()->parse($since);
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return $since;
+    }
 }
