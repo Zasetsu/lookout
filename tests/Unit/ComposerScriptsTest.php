@@ -16,10 +16,11 @@ it('aligns test tooling with the advertised Laravel versions', function () {
         true,
         flags: JSON_THROW_ON_ERROR
     );
+    $contractsConstraint = dependencyConstraint($composer, 'illuminate/contracts');
 
-    expect(str_contains($composer['require']['illuminate/contracts'], '^10.0'))->toBeFalse();
+    expect(str_contains($contractsConstraint, '^10.0'))->toBeFalse();
 
-    expect($composer['require']['illuminate/contracts'])
+    expect($contractsConstraint)
         ->toContain('^11.0')
         ->toContain('^12.0')
         ->toContain('^13.0');
@@ -104,3 +105,12 @@ it('builds dashboard css and js assets from committed sources', function () {
         ->and($package['devDependencies'])->not->toHaveKey('alpinejs')
         ->and($package['devDependencies'])->not->toHaveKey('chart.js');
 });
+
+function dependencyConstraint(array $composer, string $package): string
+{
+    return (string) (
+        $composer['require'][$package]
+        ?? $composer['require-dev'][$package]
+        ?? ''
+    );
+}

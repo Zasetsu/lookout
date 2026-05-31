@@ -2,11 +2,28 @@
 
 namespace Zasetsu\Lookout\Tests;
 
+use Illuminate\Support\Facades\Schema;
 use Orchestra\Testbench\TestCase as BaseTestCase;
 use Zasetsu\Lookout\LookoutServiceProvider;
 
 class TestCase extends BaseTestCase
 {
+    private const LOOKOUT_MIGRATIONS = [
+        'create_lookout_traces_table.php',
+        'create_lookout_events_table.php',
+        'create_lookout_exception_groups_table.php',
+        'create_lookout_thresholds_table.php',
+        'create_lookout_audit_log_table.php',
+    ];
+
+    private const LOOKOUT_TABLES_REVERSE = [
+        'lookout_events',
+        'lookout_exception_groups',
+        'lookout_thresholds',
+        'lookout_audit_log',
+        'lookout_traces',
+    ];
+
     protected function getPackageProviders($app)
     {
         return [
@@ -46,7 +63,34 @@ class TestCase extends BaseTestCase
 
     protected function defineDatabaseMigrations()
     {
+        if (config('lookout.storage.driver', 'sqlite') !== 'sqlite') {
+            $connection = (string) config('lookout.storage.connection', 'lookout');
+
+            $this->resetExternalLookoutTables($connection);
+
+            foreach (self::LOOKOUT_MIGRATIONS as $migration) {
+                (require __DIR__.'/../database/migrations/'.$migration)->up();
+            }
+
+            $this->beforeApplicationDestroyed(
+                fn () => $this->resetExternalLookoutTables($connection)
+            );
+
+            return;
+        }
+
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
+    }
+
+    protected function resetExternalLookoutTables(string $connection): void
+    {
+        Schema::connection($connection)->disableForeignKeyConstraints();
+
+        foreach (self::LOOKOUT_TABLES_REVERSE as $table) {
+            Schema::connection($connection)->dropIfExists($table);
+        }
+
+        Schema::connection($connection)->enableForeignKeyConstraints();
     }
 
     protected function lookoutDatabaseConnection(string $storageDriver): array
