@@ -4,6 +4,7 @@ Self-hosted, Laravel-native observability for requests, exceptions, queries, job
 
 Lookout is designed for teams that want production-grade visibility inside their Laravel application without sending traces, payload metadata, exception groups, or operational audit data to a third-party SaaS by default. It ships with a polished dashboard, configurable storage drivers, redaction controls, queue-based ingestion, audit logging, alert delivery telemetry, and a small authenticated JSON API.
 
+![Lookout dashboard in light mode](./lookout-dashboard-light.png)
 
 ## Contents
 
