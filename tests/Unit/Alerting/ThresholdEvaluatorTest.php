@@ -414,6 +414,40 @@ describe('ThresholdEvaluator', function () {
             ->and($row->last_triggered_at)->toBeNull();
     });
 
+    it('keeps automatic failed dispatch attempts inside cooldown', function () {
+        config(['lookout.alerting.enabled' => true]);
+        app()->instance(WebhookChannel::class, new FailingWebhookChannel);
+
+        $storage = new ThresholdEvaluatorStorageFake;
+        $storage->metricValues['exception_count'] = 6.0;
+
+        $now = now()->toDateTimeString();
+
+        DB::connection('lookout')->table('lookout_thresholds')->insert([
+            'name' => 'High exceptions',
+            'metric' => 'exception_count',
+            'condition' => 'gte',
+            'value' => 5,
+            'window_minutes' => 15,
+            'cooldown_minutes' => 15,
+            'channels' => json_encode(['webhook']),
+            'enabled' => true,
+            'last_triggered_at' => null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        $evaluator = new ThresholdEvaluator($storage);
+
+        $evaluator->evaluate();
+        $evaluator->evaluate();
+
+        $row = DB::connection('lookout')->table('lookout_thresholds')->first();
+
+        expect($row->last_triggered_at)->not->toBeNull()
+            ->and($storage->auditLog)->toHaveCount(1);
+    });
+
     it('skips unconfigured channels instead of reporting them as sent', function () {
         config(['lookout.alerting.channels.slack' => null]);
         app()->instance(SlackChannel::class, new SuccessfulSlackChannel);

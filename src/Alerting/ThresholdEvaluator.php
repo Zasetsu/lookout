@@ -26,15 +26,8 @@ class ThresholdEvaluator
             $threshold = (object) $threshold;
 
             if ($this->dryRun($threshold)->triggered) {
-                $previousLastTriggeredAt = $this->thresholdLastTriggeredAt($threshold);
-
                 if ($this->claimDispatchSlot($threshold)) {
-                    $claimedLastTriggeredAt = $this->claimedLastTriggeredAt($threshold);
-                    $deliveries = $this->dispatchAlert($threshold);
-
-                    if (! $this->hasSentDelivery($deliveries)) {
-                        $this->storage->releaseThresholdDispatchSlot((int) $threshold->id, $previousLastTriggeredAt, $claimedLastTriggeredAt);
-                    }
+                    $this->dispatchAlert($threshold);
                 }
                 $triggered[] = $threshold;
             }
