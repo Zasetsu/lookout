@@ -2,79 +2,48 @@
 @section('title', 'Logs')
 @section('content')
 @php
-    $errorCount = 0; $warnCount = 0; $infoCount = 0; $debugCount = 0;
-    foreach($logs as $log) {
-        $p = \Zasetsu\Lookout\Http\Support\Payload::decode($log['payload'] ?? null);
-        $level = $p['level'] ?? 'info';
-        if (in_array($level, ['error', 'critical', 'emergency'])) $errorCount++;
-        elseif (in_array($level, ['warning', 'alert'])) $warnCount++;
-        elseif ($level === 'debug') $debugCount++;
-        else $infoCount++;
-    }
+    use Zasetsu\Lookout\Http\Support\Payload;
+    $levels = collect($logs)->map(fn ($log) => Payload::string(Payload::decode($log['payload'] ?? null), 'level', 'info'));
 @endphp
 
-<div class="space-y-6">
-    <h1 class="page-title">Logs</h1>
+<div class="page-title-row"><span class="pt">Logs</span><span class="psub">Application log events captured inside traces</span></div>
 
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="stat-card" style="border-left-color: #6366f1">
-            <div class="stat-label">Total Entries</div>
-            <div class="stat-value text-slate-900">{{ number_format($total) }}</div>
-        </div>
-        <div class="stat-card" style="border-left-color: #ef4444">
-            <div class="stat-label">Errors</div>
-            <div class="stat-value {{ $errorCount > 0 ? 'text-red-600' : 'text-green-600' }}">{{ number_format($errorCount) }}</div>
-        </div>
-        <div class="stat-card" style="border-left-color: #f59e0b">
-            <div class="stat-label">Warnings</div>
-            <div class="stat-value {{ $warnCount > 0 ? 'text-amber-600' : 'text-green-600' }}">{{ number_format($warnCount) }}</div>
-        </div>
-        <div class="stat-card" style="border-left-color: #0ea5e9">
-            <div class="stat-label">Info/Debug</div>
-            <div class="stat-value text-slate-900">{{ number_format($infoCount + $debugCount) }}</div>
-        </div>
-    </div>
-
-    <div class="section-card">
-        <div class="section-header flex items-center justify-between">
-            <span>Recent Log Entries</span>
-            <span class="text-[11px] font-normal normal-case tracking-normal text-slate-400">{{ number_format($total) }} entries</span>
-        </div>
-        <table class="w-full">
-            <thead>
-                <tr class="border-b border-gray-100">
-                    <th class="text-left px-5 py-3">Level</th>
-                    <th class="text-left px-5 py-3">Message</th>
-                    <th class="text-left px-5 py-3">Channel</th>
-                    <th class="text-right px-5 py-3">Time</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-50">
-                @foreach($logs as $log)
-                    @php
-                        $p = \Zasetsu\Lookout\Http\Support\Payload::decode($log['payload'] ?? null);
-                        $level = $p['level'] ?? 'info';
-                        $levelBadge = match($level) {
-                            'error', 'critical', 'emergency' => 'badge-red',
-                            'warning', 'alert' => 'badge-amber',
-                            'notice', 'info' => 'badge-blue',
-                            default => 'badge-gray'
-                        };
-                    @endphp
-                    <tr>
-                        <td class="px-5 py-3">
-                            <span class="badge {{ $levelBadge }}">{{ strtoupper($level) }}</span>
-                        </td>
-                        <td class="px-5 py-3 text-sm text-slate-600 max-w-md truncate">{{ $p['message'] ?? '&mdash;' }}</td>
-                        <td class="px-5 py-3 text-xs text-slate-500">{{ $p['channel'] ?? '&mdash;' }}</td>
-                        <td class="px-5 py-3 text-right text-xs text-slate-400">{{ $log['timestamp'] }}</td>
-                    </tr>
-                @endforeach
-            </tbody>
-        </table>
-        @if(empty($logs))
-            <div class="empty-state">No log entries recorded yet.</div>
-        @endif
-    </div>
+<div class="kpi-row" style="grid-template-columns:repeat(6,1fr)">
+    <div class="kpi"><span class="k-lbl">Total entries</span><span class="k-val">{{ number_format($total) }}</span><span class="k-sub">stored log events</span></div>
+    @foreach(['debug', 'info', 'notice', 'warning', 'error'] as $level)
+        <div class="kpi"><span class="k-lbl">{{ ucfirst($level) }}</span><span class="k-val {{ in_array($level, ['warning', 'error'], true) ? ($level === 'error' ? 's-err' : 's-warn') : '' }}">{{ number_format($levels->filter(fn ($l) => $l === $level)->count()) }}</span><span class="k-sub">visible entries</span></div>
+    @endforeach
 </div>
+
+<div class="filters">
+    <div class="seg-toggle" data-filter-group="level"><button class="on" data-v="all">All</button><button data-v="info">Info</button><button data-v="warning">Warning</button><button data-v="error">Error</button></div>
+    <div class="field"><label>Channel</label><input data-filter="channel" data-match="contains" placeholder="channel"></div>
+    <div class="field"><label>Message</label><input data-filter="msg" data-match="contains" placeholder="search text"></div>
+    <span class="result-meta" data-total="{{ count($logs) }}">{{ number_format(count($logs)) }} shown</span>
+</div>
+
+<div class="table-wrap"><div class="table-scroll"><table class="lk" data-filterable>
+    <thead><tr><th>Level</th><th>Message</th><th>Channel</th><th>Context</th><th>Time</th></tr></thead>
+    <tbody>
+    @forelse($logs as $log)
+        @php
+            $p = Payload::decode($log['payload'] ?? null);
+            $level = Payload::string($p, 'level', 'info');
+            $message = Payload::string($p, 'message', $log['labels'] ?? '');
+            $channel = Payload::string($p, 'channel', 'default');
+            $tone = match ($level) { 'error', 'critical', 'alert', 'emergency' => 'err', 'warning' => 'warn', 'debug' => 'neu', default => 'info' };
+        @endphp
+        <tr class="row" data-level="{{ $level }}" data-channel="{{ strtolower($channel) }}" data-msg="{{ strtolower($message) }}" data-expand>
+            <td><span class="badge {{ $tone }}">{{ $level }}</span></td>
+            <td><span class="route truncate">{{ $message }}</span></td>
+            <td><span class="badge neu">{{ $channel }}</span></td>
+            <td class="subtle">{{ array_key_exists('context', $p) ? 'available' : 'empty' }}</td>
+            <td class="t-time">{{ $log['timestamp'] ?? '' }}</td>
+        </tr>
+        <tr class="detail-row"><td colspan="5"><div class="detail-inner"><pre class="code">{{ json_encode($p['context'] ?? $p, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre></div></td></tr>
+    @empty
+        <tr><td colspan="5"><div class="empty"><h4>No logs</h4><p>Log events will appear here when application logs are emitted inside sampled traces.</p></div></td></tr>
+    @endforelse
+    </tbody>
+</table></div></div>
 @endsection

@@ -28,11 +28,11 @@ describe('Outgoing HTTP dashboard', function () {
             ],
         ])->render();
 
-        expect($html)->toContain('Error Rate')
-            ->and($html)->toMatch('/Error Rate<\/div>\s*<div class="stat-value text-red-600">50(?:\.0)?<span/s')
-            ->and($html)->toMatch('/Errors<\/div>\s*<div class="stat-value text-red-600">1<\/div>/s')
-            ->and($html)->toContain('badge-red')
-            ->and($html)->toContain('Failed')
-            ->and($html)->not->toContain('badge-green">0</span>');
+        expect($html)->toContain('Failures')
+            ->and($html)->toContain('50% visible error rate')
+            ->and($html)->toContain('<span class="k-val s-err">1</span>')
+            ->and($html)->toContain('badge err')
+            ->and($html)->toContain('failed')
+            ->and($html)->not->toContain('badge ok">0</span>');
     });
 });

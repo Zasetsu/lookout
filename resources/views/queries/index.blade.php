@@ -1,105 +1,65 @@
 @extends('lookout::layouts.app')
-
-@section('title', 'Slow Queries')
-
+@section('title', 'Queries')
 @section('content')
 @php
-    $trendPoints = collect($trend ?? [])->pluck('count')->all();
+    use Zasetsu\Lookout\Http\Support\Payload;
+    $trendPoints = collect($trend ?? [])->pluck('count')->map(fn ($v) => (int) $v)->all();
     $trendTotal = array_sum($trendPoints);
-    $bucketsData = $buckets['buckets'] ?? [];
-    $bucketsMax = $buckets['max'] ?? 1;
-    $bucketsTotal = $buckets['total'] ?? 0;
-    $slowCount = count($queries);
+    $bucketsTotal = (int) ($buckets['total'] ?? 0);
+    $slowCount = collect($queries)->filter(fn ($q) => (int) ($q['duration'] ?? 0) >= $threshold)->count();
     $slowRate = $bucketsTotal > 0 ? round(($slowCount / $bucketsTotal) * 100, 1) : 0;
+    $trendValues = implode(',', $trendPoints !== [] ? $trendPoints : [0]);
+    $bucketValues = implode(',', array_values($buckets['buckets'] ?? [0]));
 @endphp
 
-<div class="space-y-6">
-    <h1 class="page-title">Slow Queries</h1>
+<div class="page-title-row">
+    <span class="pt">Queries</span>
+    <span class="psub">Slow SQL and query duration distribution</span>
+    <div class="right"><a class="btn sm" href="{{ route('lookout.queries') }}">Reset</a></div>
+</div>
 
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="stat-card" style="border-left-color: #3b82f6">
-            <div class="stat-label">Total Queries (24h)</div>
-            <div class="stat-value text-slate-900">{{ number_format($trendTotal) }}</div>
-        </div>
-        <div class="stat-card" style="border-left-color: #f59e0b">
-            <div class="stat-label">Slow Queries</div>
-            <div class="stat-value {{ $slowCount > 0 ? 'text-amber-600' : 'text-green-600' }}">{{ number_format($slowCount) }}</div>
-            <div class="text-[11px] text-slate-400 mt-1">Threshold: >{{ $threshold }}ms</div>
-        </div>
-        <div class="stat-card" style="border-left-color: #ef4444">
-            <div class="stat-label">Slow Query Rate</div>
-            <div class="stat-value {{ $slowRate > 10 ? 'text-red-600' : ($slowRate > 0 ? 'text-amber-600' : 'text-green-600') }}">{{ $slowRate }}<span class="text-sm font-normal text-slate-400 ml-0.5">%</span></div>
-        </div>
-        <div class="stat-card" style="border-left-color: #8b5cf6">
-            <div class="stat-label">Sampled Queries</div>
-            <div class="stat-value text-slate-900">{{ number_format($bucketsTotal) }}</div>
-        </div>
-    </div>
+<div class="kpi-row" style="grid-template-columns:repeat(4,1fr)">
+    <div class="kpi"><span class="k-lbl">Total queries</span><span class="k-val">{{ number_format($trendTotal) }}</span><span class="k-sub">last 24 hours</span></div>
+    <div class="kpi"><span class="k-lbl">Current threshold</span><span class="k-val">{{ number_format($threshold) }}<span class="u">ms</span></span><span class="k-sub">minimum slow query</span></div>
+    <div class="kpi"><span class="k-lbl">Shown slow queries</span><span class="k-val {{ $slowCount > 0 ? 's-warn' : '' }}">{{ number_format($slowCount) }}</span><span class="k-sub">{{ $slowRate }}% of bucketed sample</span></div>
+    <div class="kpi"><span class="k-lbl">Bucketed sample</span><span class="k-val">{{ number_format($bucketsTotal) }}</span><span class="k-sub">latest query events</span></div>
+</div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="section-card">
-            <div class="section-header">Query Volume Trend (24h)</div>
-            <div class="p-4">
-                @include('lookout::partials.sparkline', ['data' => $trendPoints, 'width' => 520, 'height' => 80, 'color' => '#3b82f6'])
-            </div>
-        </div>
+<div class="grid mb12" style="grid-template-columns:1fr 1fr">
+    <div class="panel"><div class="panel-h"><h3>Query trend</h3><span class="sub">events by hour</span></div><div class="panel-b"><div class="js-bars" data-values="{{ $trendValues }}" data-tipunit="queries" data-x="oldest|now"></div></div></div>
+    <div class="panel"><div class="panel-h"><h3>Duration distribution</h3><span class="sub">latest sample</span></div><div class="panel-b"><div class="js-histo" data-values="{{ $bucketValues }}" data-x="{{ implode('|', array_keys($buckets['buckets'] ?? [])) }}"></div></div></div>
+</div>
 
-        <div class="section-card">
-            <div class="section-header">Duration Distribution</div>
-            <div class="p-5 space-y-3">
+<form method="GET" action="{{ route('lookout.queries') }}" class="filters">
+    <div class="field"><label>Threshold</label><input name="threshold" value="{{ $threshold }}" style="width:64px"> <span class="subtle">ms</span></div>
+    <button class="btn primary" type="submit">Apply</button>
+    <span class="result-meta" data-total="{{ count($queries) }}">{{ number_format(count($queries)) }} shown</span>
+</form>
+
+<div class="table-wrap">
+    <div class="table-scroll">
+        <table class="lk" data-filterable>
+            <thead><tr><th>SQL</th><th>Connection</th><th class="num">Duration</th><th>Time</th></tr></thead>
+            <tbody>
+            @forelse($queries as $query)
                 @php
-                $bucketColors = ['0-10ms' => '#22c55e', '10-50ms' => '#0ea5e9', '50-100ms' => '#6366f1', '100-500ms' => '#f59e0b', '500-1000ms' => '#f97316', '1s+' => '#ef4444'];
+                    $payload = Payload::decode($query['payload'] ?? null);
+                    $sql = Payload::string($payload, 'sql', $query['labels'] ?? '');
+                    $connection = Payload::string($payload, 'connection', 'default');
+                    $duration = (int) ($query['duration'] ?? 0);
                 @endphp
-                @foreach($bucketsData as $label => $count)
-                    @php $pct = $bucketsTotal > 0 ? round(($count / $bucketsTotal) * 100, 1) : 0; @endphp
-                    <div>
-                        <div class="flex justify-between text-xs mb-1">
-                            <span class="text-slate-500">{{ $label }}</span>
-                            <span class="font-medium text-slate-700">{{ number_format($count) }} ({{ $pct }}%)</span>
-                        </div>
-                        <div class="w-full bg-gray-100 rounded-full h-2">
-                            <div class="h-2 rounded-full" style="width:{{ $pct }}%; background:{{ $bucketColors[$label] }}"></div>
-                        </div>
-                    </div>
-                @endforeach
-            </div>
-        </div>
-    </div>
-
-    <div class="section-card">
-        <div class="section-header flex items-center justify-between">
-            <span>Slow Queries (>{{ $threshold }}ms)</span>
-            <span class="text-[11px] font-normal normal-case tracking-normal text-slate-400">{{ count($queries) }} queries</span>
-        </div>
-        <table class="w-full">
-            <thead>
-                <tr class="border-b border-gray-100">
-                    <th class="text-left px-5 py-3">Query</th>
-                    <th class="text-right px-5 py-3">Duration</th>
-                    <th class="text-right px-5 py-3">Time</th>
+                <tr class="row" data-expand data-dur="{{ $duration }}" data-conn="{{ strtolower($connection) }}">
+                    <td><span class="route mono truncate">{{ $sql }}</span></td>
+                    <td><span class="badge neu">{{ $connection }}</span></td>
+                    <td class="num dur {{ $duration > 1000 ? 'vslow' : ($duration >= $threshold ? 'slow' : '') }}">{{ number_format($duration) }}ms</td>
+                    <td class="t-time">{{ $query['timestamp'] ?? '' }}</td>
                 </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-50">
-                @foreach($queries as $query)
-                    <tr>
-                        <td class="px-5 py-3">
-                            <details>
-                                <summary class="cursor-pointer text-sm text-slate-700 hover:text-slate-900 select-none">
-                                    <span class="chevron">&#9654;</span>
-                                    <span class="font-mono text-xs">{{ $query['labels'] ?? 'Query' }}</span>
-                                </summary>
-                                <pre class="mt-2 text-xs bg-slate-800 text-slate-300 p-3 rounded-lg overflow-auto max-h-64 font-mono leading-relaxed">{{ $query['payload'] }}</pre>
-                            </details>
-                        </td>
-                        <td class="px-5 py-3 text-right font-mono text-xs {{ ($query['duration'] ?? 0) > 1000 ? 'duration-critical' : (($query['duration'] ?? 0) > 500 ? 'duration-warn' : 'text-slate-500') }}">{{ number_format($query['duration'] ?? 0) }} ms</td>
-                        <td class="px-5 py-3 text-right text-xs text-slate-400">{{ $query['timestamp'] }}</td>
-                    </tr>
-                @endforeach
+                <tr class="detail-row"><td colspan="4"><div class="detail-inner"><pre class="code sql">{{ json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre></div></td></tr>
+            @empty
+                <tr><td colspan="4"><div class="empty"><h4>No slow queries</h4><p>No query events are above the selected threshold.</p></div></td></tr>
+            @endforelse
             </tbody>
         </table>
-        @if(empty($queries))
-            <div class="empty-state">No slow queries recorded yet.</div>
-        @endif
     </div>
 </div>
 @endsection

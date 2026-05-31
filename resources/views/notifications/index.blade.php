@@ -1,55 +1,42 @@
 @extends('lookout::layouts.app')
 @section('title', 'Notifications')
 @section('content')
-<div class="space-y-6">
-    <h1 class="page-title">Notifications</h1>
+@php use Zasetsu\Lookout\Http\Support\Payload; @endphp
 
-    <div class="grid grid-cols-2 lg:grid-cols-3 gap-4">
-        <div class="stat-card" style="border-left-color: #ec4899">
-            <div class="stat-label">Total Sent</div>
-            <div class="stat-value text-slate-900">{{ number_format($total) }}</div>
-        </div>
-        <div class="stat-card" style="border-left-color: #8b5cf6">
-            <div class="stat-label">Unique Types</div>
-            <div class="stat-value text-slate-900">{{ number_format($uniqueTypes ?? 0) }}</div>
-        </div>
-        <div class="stat-card" style="border-left-color: #6366f1">
-            <div class="stat-label">Channels Used</div>
-            <div class="stat-value text-slate-900">{{ number_format($uniqueChannels ?? 0) }}</div>
-        </div>
-    </div>
+<div class="page-title-row"><span class="pt">Notifications</span><span class="psub">Laravel notification delivery events</span></div>
 
-    <div class="section-card">
-        <div class="section-header flex items-center justify-between">
-            <span>Recent Notifications</span>
-            <span class="text-[11px] font-normal normal-case tracking-normal text-slate-400">{{ number_format($total) }} sent</span>
-        </div>
-        <table class="w-full">
-            <thead>
-                <tr class="border-b border-gray-100">
-                    <th class="text-left px-5 py-3">Notification</th>
-                    <th class="text-left px-5 py-3">Channel</th>
-                    <th class="text-left px-5 py-3">Notifiable</th>
-                    <th class="text-right px-5 py-3">Time</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-50">
-                @foreach($notifications as $notification)
-                    @php $p = \Zasetsu\Lookout\Http\Support\Payload::decode($notification['payload'] ?? null) @endphp
-                    <tr>
-                        <td class="px-5 py-3 text-sm font-medium">{{ class_basename(\Zasetsu\Lookout\Http\Support\Payload::string($p, 'notification', 'Unknown')) }}</td>
-                        <td class="px-5 py-3">
-                            <span class="badge badge-purple">{{ \Zasetsu\Lookout\Http\Support\Payload::string($p, 'channel', '&mdash;') }}</span>
-                        </td>
-                        <td class="px-5 py-3 text-xs text-slate-500">{{ \Zasetsu\Lookout\Http\Support\Payload::string($p, 'notifiable', '&mdash;') }}</td>
-                        <td class="px-5 py-3 text-right text-xs text-slate-400">{{ $notification['timestamp'] }}</td>
-                    </tr>
-                @endforeach
-            </tbody>
-        </table>
-        @if(empty($notifications))
-            <div class="empty-state">No notifications recorded yet.</div>
-        @endif
-    </div>
+<div class="kpi-row" style="grid-template-columns:repeat(4,1fr)">
+    <div class="kpi"><span class="k-lbl">Total sent</span><span class="k-val">{{ number_format($total) }}</span><span class="k-sub">stored notifications</span></div>
+    <div class="kpi"><span class="k-lbl">Unique types</span><span class="k-val">{{ number_format($uniqueTypes) }}</span><span class="k-sub">visible classes</span></div>
+    <div class="kpi"><span class="k-lbl">Unique channels</span><span class="k-val">{{ number_format($uniqueChannels) }}</span><span class="k-sub">visible channels</span></div>
+    <div class="kpi"><span class="k-lbl">Visible</span><span class="k-val">{{ number_format(count($notifications)) }}</span><span class="k-sub">latest entries</span></div>
 </div>
+
+<div class="filters">
+    <div class="field"><label>Channel</label><input data-filter="channel" data-match="contains" placeholder="mail, database"></div>
+    <div class="field"><label>Class</label><input data-filter="class" data-match="contains" placeholder="notification class"></div>
+    <span class="result-meta" data-total="{{ count($notifications) }}">{{ number_format(count($notifications)) }} shown</span>
+</div>
+
+<div class="table-wrap"><div class="table-scroll"><table class="lk" data-filterable>
+    <thead><tr><th>Notification</th><th>Channel</th><th>Notifiable</th><th>Time</th></tr></thead>
+    <tbody>
+    @forelse($notifications as $notification)
+        @php
+            $p = Payload::decode($notification['payload'] ?? null);
+            $class = Payload::string($p, 'notification', $notification['labels'] ?? 'Notification');
+            $channel = Payload::string($p, 'channel', 'unknown');
+            $notifiable = Payload::string($p, 'notifiable', 'n/a');
+        @endphp
+        <tr class="row" data-channel="{{ strtolower($channel) }}" data-class="{{ strtolower($class) }}">
+            <td><div class="stack"><span class="route mono truncate">{{ class_basename($class) }}</span><span class="sm truncate">{{ $class }}</span></div></td>
+            <td><span class="badge info">{{ $channel }}</span></td>
+            <td class="mono subtle truncate">{{ $notifiable }}</td>
+            <td class="t-time">{{ $notification['timestamp'] ?? '' }}</td>
+        </tr>
+    @empty
+        <tr><td colspan="4"><div class="empty"><h4>No notifications</h4><p>Notification events will appear here when Laravel sends them.</p></div></td></tr>
+    @endforelse
+    </tbody>
+</table></div></div>
 @endsection

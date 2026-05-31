@@ -1,97 +1,78 @@
 @extends('lookout::layouts.app')
-
 @section('title', 'Exceptions')
-
 @section('content')
 @php
-    $trendPoints = collect($trend ?? [])->pluck('count')->all();
+    $trendPoints = collect($trend ?? [])->pluck('count')->map(fn ($v) => (int) $v)->all();
     $trendTotal = array_sum($trendPoints);
-    $unresolved = $statusCounts['unresolved'] ?? 0;
-    $resolved = $statusCounts['resolved'] ?? 0;
-    $ignored = $statusCounts['ignored'] ?? 0;
+    $unresolved = (int) ($statusCounts['unresolved'] ?? 0);
+    $resolved = (int) ($statusCounts['resolved'] ?? 0);
+    $ignored = (int) ($statusCounts['ignored'] ?? 0);
     $allTotal = $unresolved + $resolved + $ignored;
+    $activeStatus = request('status', 'unresolved');
+    $trendValues = implode(',', $trendPoints !== [] ? $trendPoints : [0]);
 @endphp
 
-<div class="space-y-6">
-    <h1 class="page-title">Exceptions</h1>
+<div class="page-title-row">
+    <span class="pt">Exceptions</span>
+    <span class="psub">Grouped failures · recurrence tracking · operator actions</span>
+    <div class="right"><a class="btn sm" href="{{ route('lookout.exceptions') }}">Reset</a></div>
+</div>
 
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="stat-card" style="border-left-color: #ef4444">
-            <div class="stat-label">Total Groups</div>
-            <div class="stat-value text-slate-900">{{ number_format($allTotal) }}</div>
-        </div>
-        <div class="stat-card" style="border-left-color: #f59e0b">
-            <div class="stat-label">Unresolved</div>
-            <div class="stat-value {{ $unresolved > 0 ? 'text-red-600' : 'text-green-600' }}">{{ number_format($unresolved) }}</div>
-        </div>
-        <div class="stat-card" style="border-left-color: #8b5cf6">
-            <div class="stat-label">Total Occurrences (24h)</div>
-            <div class="stat-value text-slate-900">{{ number_format($trendTotal) }}</div>
-        </div>
-        <div class="stat-card" style="border-left-color: #22c55e">
-            <div class="stat-label">Resolved</div>
-            <div class="stat-value text-green-600">{{ number_format($resolved) }}</div>
-        </div>
+<div class="kpi-row" style="grid-template-columns:repeat(4,1fr)">
+    <div class="kpi"><span class="k-lbl">Total groups</span><span class="k-val">{{ number_format($allTotal) }}</span><span class="k-sub">all statuses</span></div>
+    <div class="kpi"><span class="k-lbl">Unresolved</span><span class="k-val {{ $unresolved > 0 ? 's-err' : 's-ok' }}">{{ number_format($unresolved) }}</span><span class="k-sub">visible by default</span></div>
+    <div class="kpi"><span class="k-lbl">Occurrences</span><span class="k-val">{{ number_format($trendTotal) }}</span><span class="k-sub">last 24 hours</span></div>
+    <div class="kpi"><span class="k-lbl">Resolved</span><span class="k-val s-ok">{{ number_format($resolved) }}</span><span class="k-sub">{{ number_format($ignored) }} ignored</span></div>
+</div>
+
+<div class="panel mb12">
+    <div class="panel-h"><h3>Exception trend</h3><span class="sub">events by hour · last 24h</span></div>
+    <div class="panel-b"><div class="js-bars" data-tipunit="events" data-values="{{ $trendValues }}" data-x="oldest|now" data-err=""></div></div>
+</div>
+
+<form method="GET" action="{{ route('lookout.exceptions') }}" class="filters">
+    <div class="seg-toggle">
+        @foreach(['unresolved' => 'Unresolved', 'resolved' => 'Resolved', 'ignored' => 'Ignored'] as $value => $label)
+            <button type="submit" name="status" value="{{ $value }}" class="{{ $activeStatus === $value ? 'on' : '' }}">{{ $label }}</button>
+        @endforeach
     </div>
+    <div class="field"><label>Class</label><input name="class" value="{{ request('class') }}" placeholder="exception class"></div>
+    <button class="btn primary" type="submit">Apply</button>
+    <span class="result-meta" data-total="{{ $total }}">{{ number_format(count($groups)) }} of {{ number_format($total) }} shown</span>
+</form>
 
-    <div class="section-card">
-        <div class="section-header">Exception Trend (24h)</div>
-        <div class="p-4">
-            @include('lookout::partials.sparkline', ['data' => $trendPoints, 'width' => 600, 'height' => 80, 'color' => '#ef4444'])
-        </div>
-    </div>
-
-    <div class="section-card">
-        <div class="section-header flex items-center justify-between">
-            <span>Exception Groups</span>
-            <span class="text-[11px] font-normal normal-case tracking-normal text-slate-400">{{ number_format($total) }} groups</span>
-        </div>
-        <table class="w-full">
-            <thead>
-                <tr class="border-b border-gray-100">
-                    <th class="text-left px-5 py-3">Exception</th>
-                    <th class="text-left px-5 py-3">File</th>
-                    <th class="text-right px-5 py-3">Occurrences</th>
-                    <th class="text-left px-5 py-3">Status</th>
-                    <th class="text-right px-5 py-3">Last Seen</th>
-                    <th class="text-right px-5 py-3">Actions</th>
+<div class="table-wrap">
+    <div class="table-scroll">
+        <table class="lk" data-filterable>
+            <thead><tr><th>Exception</th><th>File</th><th class="num">Occurrences</th><th>Status</th><th>Last seen</th><th class="num">Actions</th></tr></thead>
+            <tbody>
+            @forelse($groups as $group)
+                @php
+                    $status = $group['status'] ?? 'unresolved';
+                    $tone = $status === 'unresolved' ? 'err' : ($status === 'resolved' ? 'ok' : 'neu');
+                @endphp
+                <tr class="row" data-state="{{ $status }}" data-class="{{ strtolower($group['exception_class'] ?? '') }}" onclick="location.href='{{ route('lookout.exception-detail', $group['id']) }}'">
+                    <td><div class="stack"><span class="route mono truncate">{{ $group['exception_class'] }}</span><span class="sm truncate">{{ $group['message'] }}</span></div></td>
+                    <td class="mono subtle wrap-anywhere">{{ basename($group['file'] ?? '') }}:{{ $group['line'] ?? '' }}</td>
+                    <td class="num"><span class="badge {{ ($group['occurrence_count'] ?? 0) > 5 ? 'err' : 'warn' }}">{{ number_format($group['occurrence_count'] ?? 0) }}</span></td>
+                    <td><span class="badge {{ $tone }}">{{ $status }}</span></td>
+                    <td class="t-time">{{ $group['last_seen'] ?? '' }}</td>
+                    <td class="num" onclick="event.stopPropagation()">
+                        @if($status === 'unresolved')
+                            <div class="flex gap6" style="justify-content:flex-end">
+                                <form method="POST" action="{{ route('lookout.exception-resolve', $group['id']) }}">@csrf<button class="btn sm primary" type="submit">Resolve</button></form>
+                                <form method="POST" action="{{ route('lookout.exception-ignore', $group['id']) }}">@csrf<button class="btn sm" type="submit">Ignore</button></form>
+                            </div>
+                        @else
+                            <span class="subtle">No action</span>
+                        @endif
+                    </td>
                 </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-50">
-                @foreach($groups as $group)
-                    <tr>
-                        <td class="px-5 py-3">
-                            <a href="{{ route('lookout.exception-detail', $group['id']) }}" class="text-sm font-medium text-indigo-600 hover:text-indigo-800 hover:underline">{{ $group['exception_class'] }}</a>
-                            <p class="text-xs text-slate-400 mt-0.5 truncate max-w-md">{{ $group['message'] }}</p>
-                        </td>
-                        <td class="px-5 py-3 font-mono text-xs text-slate-500">{{ basename($group['file']) }}:{{ $group['line'] }}</td>
-                        <td class="px-5 py-3 text-right font-medium text-sm">{{ number_format($group['occurrence_count']) }}</td>
-                        <td class="px-5 py-3">
-                            @php
-                                $statusMap = ['unresolved' => 'badge-red', 'resolved' => 'badge-green', 'ignored' => 'badge-gray'];
-                            @endphp
-                            <span class="badge {{ $statusMap[$group['status']] ?? 'badge-gray' }}">{{ $group['status'] }}</span>
-                        </td>
-                        <td class="px-5 py-3 text-right text-xs text-slate-400">{{ $group['last_seen'] }}</td>
-                        <td class="px-5 py-3 text-right space-x-3">
-                            @if($group['status'] === 'unresolved')
-                                <form method="POST" action="{{ route('lookout.exception-resolve', $group['id']) }}" class="inline">
-                                    @csrf
-                                    <button type="submit" class="text-xs text-green-600 hover:underline">Resolve</button>
-                                </form>
-                                <form method="POST" action="{{ route('lookout.exception-ignore', $group['id']) }}" class="inline">
-                                    @csrf
-                                    <button type="submit" class="text-xs text-slate-400 hover:underline">Ignore</button>
-                                </form>
-                            @endif
-                        </td>
-                    </tr>
-                @endforeach
+            @empty
+                <tr><td colspan="6"><div class="empty"><h4>No exception groups</h4><p>No groups match the current filters.</p></div></td></tr>
+            @endforelse
             </tbody>
         </table>
-        @if(empty($groups))
-            <div class="empty-state">No exceptions recorded yet.</div>
-        @endif
     </div>
 </div>
 @endsection

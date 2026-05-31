@@ -2,104 +2,112 @@
 @section('title', 'Requests')
 @section('content')
 @php
-    $volumePoints = collect($volume ?? [])->pluck('count')->all();
+    $volumePoints = collect($volume ?? [])->pluck('count')->map(fn ($v) => (int) $v)->all();
     $totalReqs = array_sum($volumePoints);
-    $errorTotal = ($statusDist['distribution']['5xx'] ?? 0) + ($statusDist['distribution']['4xx'] ?? 0);
-    $errorRate = $statusDist['total'] > 0 ? round(($errorTotal / $statusDist['total']) * 100, 1) : 0;
+    $avgDuration = (float) ($summary['avg_duration'] ?? 0);
     $sd = $statusDist['distribution'] ?? [];
-    $sdTotal = $statusDist['total'] ?? 0;
+    $sdTotal = (int) ($statusDist['total'] ?? 0);
+    $errorTotal = (int) ($sd['4xx'] ?? 0) + (int) ($sd['5xx'] ?? 0);
+    $errorRate = $sdTotal > 0 ? round(($errorTotal / $sdTotal) * 100, 2) : 0;
+    $successRate = $sdTotal > 0 ? round(100 - $errorRate, 2) : 100;
+    $barValues = implode(',', $volumePoints !== [] ? $volumePoints : [0]);
+    $statusFilter = request('status', '');
+    $methodFilter = request('method', '');
 @endphp
 
-<div class="space-y-6">
-    <h1 class="page-title">Requests</h1>
+<div class="page-title-row">
+    <span class="pt">Requests</span>
+    <span class="psub">HTTP traces · sampled traffic · last 24 hours</span>
+    <div class="right"><a class="btn sm" href="{{ route('lookout.requests') }}">Reset</a></div>
+</div>
 
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="stat-card" style="border-left-color: #6366f1">
-            <div class="stat-label">Total (24h)</div>
-            <div class="stat-value text-slate-900">{{ number_format($totalReqs) }}</div>
-        </div>
-        <div class="stat-card" style="border-left-color: #0ea5e9">
-            <div class="stat-label">Avg Duration</div>
-            <div class="stat-value text-slate-900">{{ number_format($summary['avg_duration'] ?? 0) }}<span class="text-sm font-normal text-slate-400 ml-1">ms</span></div>
-        </div>
-        <div class="stat-card" style="border-left-color: #22c55e">
-            <div class="stat-label">Success Rate</div>
-            <div class="stat-value {{ $errorRate > 5 ? 'text-amber-600' : ($errorRate > 0 ? 'text-amber-600' : 'text-green-600') }}">
-                {{ $sdTotal > 0 ? round(100 - $errorRate, 1) : 100 }}<span class="text-sm font-normal text-slate-400 ml-0.5">%</span>
-            </div>
-        </div>
-        <div class="stat-card" style="border-left-color: #ef4444">
-            <div class="stat-label">Errors (4xx/5xx)</div>
-            <div class="stat-value {{ $errorTotal > 0 ? 'text-red-600' : 'text-slate-900' }}">{{ number_format($errorTotal) }}</div>
-        </div>
+<div class="kpi-row" style="grid-template-columns:repeat(5,1fr)">
+    <div class="kpi"><span class="k-lbl">Total</span><span class="k-val">{{ number_format($totalReqs) }}</span><span class="k-sub">requests in chart window</span></div>
+    <div class="kpi"><span class="k-lbl">Avg duration</span><span class="k-val">{{ number_format($avgDuration) }}<span class="u">ms</span></span><span class="k-sub">all sampled requests</span></div>
+    <div class="kpi"><span class="k-lbl">Success rate</span><span class="k-val {{ $successRate < 99 ? 's-warn' : 's-ok' }}">{{ $successRate }}<span class="u">%</span></span><span class="k-sub">{{ number_format($sd['2xx'] ?? 0) }} 2xx responses</span></div>
+    <div class="kpi"><span class="k-lbl">Errors</span><span class="k-val {{ $errorTotal > 0 ? 's-err' : '' }}">{{ number_format($errorTotal) }}</span><span class="k-sub">4xx and 5xx responses</span></div>
+    <div class="kpi"><span class="k-lbl">Stored traces</span><span class="k-val">{{ number_format($total) }}</span><span class="k-sub">matching current filter</span></div>
+</div>
+
+<div class="grid mb12" style="grid-template-columns:1.35fr 1fr">
+    <div class="panel">
+        <div class="panel-h"><h3>Request volume</h3><span class="sub">requests per hour</span></div>
+        <div class="panel-b"><div class="js-bars" data-tipunit="req" data-values="{{ $barValues }}" data-x="oldest|now"></div></div>
     </div>
-
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="section-card">
-            <div class="section-header">Request Volume (24h)</div>
-            <div class="p-4">
-                @include('lookout::partials.sparkline', ['data' => $volumePoints, 'width' => 520, 'height' => 80, 'color' => '#6366f1'])
+    <div class="panel">
+        <div class="panel-h"><h3>Status distribution</h3><span class="sub">{{ number_format($sdTotal) }} responses</span></div>
+        <div class="panel-b">
+            @php
+                $two = (int) ($sd['2xx'] ?? 0); $three = (int) ($sd['3xx'] ?? 0); $four = (int) ($sd['4xx'] ?? 0); $five = (int) ($sd['5xx'] ?? 0);
+                $pct = fn ($value) => $sdTotal > 0 ? max(0.5, round(($value / $sdTotal) * 100, 1)) : 0;
+            @endphp
+            <div class="seg">
+                <span class="s2" style="width:{{ $pct($two) }}%"></span>
+                <span class="s3" style="width:{{ $pct($three) }}%"></span>
+                <span class="s4" style="width:{{ $pct($four) }}%"></span>
+                <span class="s5" style="width:{{ $pct($five) }}%"></span>
             </div>
-        </div>
-
-        <div class="section-card">
-            <div class="section-header">Status Distribution</div>
-            <div class="p-5 space-y-3">
-                @php
-                $statusLabels = ['2xx' => '2xx Success', '3xx' => '3xx Redirect', '4xx' => '4xx Client Error', '5xx' => '5xx Server Error'];
-                $statusColors = ['2xx' => ['bg' => '#22c55e', 'text' => 'text-green-600'], '3xx' => ['bg' => '#0ea5e9', 'text' => 'text-sky-600'], '4xx' => ['bg' => '#f59e0b', 'text' => 'text-amber-600'], '5xx' => ['bg' => '#ef4444', 'text' => 'text-red-600']];
-                @endphp
-                @foreach(['2xx', '3xx', '4xx', '5xx'] as $range)
-                    @php $count = $sd[$range] ?? 0; $pct = $sdTotal > 0 ? round(($count / $sdTotal) * 100, 1) : 0; @endphp
-                    <div>
-                        <div class="flex justify-between text-xs mb-1">
-                            <span class="text-slate-500">{{ $statusLabels[$range] }}</span>
-                            <span class="font-medium {{ $statusColors[$range]['text'] }}">{{ number_format($count) }} ({{ $pct }}%)</span>
-                        </div>
-                        <div class="w-full bg-gray-100 rounded-full h-2">
-                            <div class="h-2 rounded-full" style="width:{{ $pct }}%; background:{{ $statusColors[$range]['bg'] }}"></div>
-                        </div>
-                    </div>
-                @endforeach
+            <div class="seg-legend">
+                <span class="li"><i class="sw" style="background:var(--c2xx)"></i>2xx <b>{{ number_format($two) }}</b></span>
+                <span class="li"><i class="sw" style="background:var(--c3xx)"></i>3xx <b>{{ number_format($three) }}</b></span>
+                <span class="li"><i class="sw" style="background:var(--c4xx)"></i>4xx <b>{{ number_format($four) }}</b></span>
+                <span class="li"><i class="sw" style="background:var(--c5xx)"></i>5xx <b>{{ number_format($five) }}</b></span>
             </div>
         </div>
     </div>
+</div>
 
-    <div class="section-card">
-        <div class="section-header flex items-center justify-between">
-            <span>Recent Requests</span>
-            <span class="text-[11px] font-normal normal-case tracking-normal text-slate-400">{{ number_format($total) }} total</span>
-        </div>
-        <table class="w-full">
+<form method="GET" action="{{ route('lookout.requests') }}" class="filters">
+    <div class="seg-toggle">
+        <button type="submit" name="status" value="" class="{{ $statusFilter === '' ? 'on' : '' }}">All</button>
+        <button type="submit" name="status" value="success" class="{{ $statusFilter === 'success' ? 'on' : '' }}">Success</button>
+        <button type="submit" name="status" value="error" class="{{ $statusFilter === 'error' ? 'on' : '' }}">Errors</button>
+    </div>
+    <div class="field">
+        <label>Method</label>
+        <select name="method">
+            <option value="">Any</option>
+            @foreach(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'] as $method)
+                <option value="{{ $method }}" @selected($methodFilter === $method)>{{ $method }}</option>
+            @endforeach
+        </select>
+    </div>
+    <div class="field"><label>Route</label><input name="route" value="{{ request('route') }}" placeholder="name or path"></div>
+    <div class="field"><label>Status</label><input name="response_status" value="{{ request('response_status') }}" placeholder="500" style="width:64px"></div>
+    <div class="field"><label>Min</label><input name="min_duration" value="{{ request('min_duration') }}" placeholder="ms" style="width:64px"></div>
+    <div class="field"><label>Since</label><input name="since" value="{{ request('since') }}" placeholder="24h" style="width:76px"></div>
+    <button class="btn primary" type="submit">Apply</button>
+    <span class="result-meta" data-total="{{ $total }}">{{ number_format(count($traces)) }} of {{ number_format($total) }} shown</span>
+</form>
+
+<div class="table-wrap">
+    <div class="table-scroll">
+        <table class="lk request-table" data-filterable>
             <thead>
-                <tr class="border-b border-gray-100">
-                    <th class="text-left px-5 py-3">Method</th>
-                    <th class="text-left px-5 py-3">Route</th>
-                    <th class="text-left px-5 py-3">Status</th>
-                    <th class="text-right px-5 py-3">Duration</th>
-                    <th class="text-right px-5 py-3">Time</th>
-                </tr>
+                <tr><th>Method</th><th>Route</th><th>Status</th><th class="num">Duration</th><th class="num">Memory</th><th>Time</th></tr>
             </thead>
-            <tbody class="divide-y divide-gray-50">
-                @foreach($traces as $trace)
-                    <tr>
-                        <td class="px-5 py-3"><span class="method-badge method-{{ $trace['method'] ?? 'GET' }}">{{ $trace['method'] ?? 'GET' }}</span></td>
-                        <td class="px-5 py-3">
-                            <a href="{{ route('lookout.request-detail', $trace['trace_id']) }}" class="font-mono text-xs text-indigo-600 hover:text-indigo-800 hover:underline">{{ $trace['name'] }}</a>
-                        </td>
-                        <td class="px-5 py-3">
-                            @php $code = $trace['response_status'] ?? 200 @endphp
-                            <span class="badge {{ $code >= 500 ? 'badge-red' : ($code >= 400 ? 'badge-amber' : 'badge-green') }}">{{ $code }}</span>
-                        </td>
-                        <td class="px-5 py-3 text-right font-mono text-xs {{ ($trace['duration'] ?? 0) > 1000 ? 'duration-critical' : (($trace['duration'] ?? 0) > 500 ? 'duration-warn' : 'text-slate-500') }}">{{ number_format($trace['duration'] ?? 0) }} ms</td>
-                        <td class="px-5 py-3 text-right text-xs text-slate-400">{{ $trace['timestamp'] }}</td>
-                    </tr>
-                @endforeach
+            <tbody>
+            @forelse($traces as $trace)
+                @php
+                    $code = (int) ($trace['response_status'] ?? 0);
+                    $method = $trace['method'] ?? 'GET';
+                    $duration = (int) ($trace['duration'] ?? 0);
+                    $statusTone = $code >= 500 ? 'err' : ($code >= 400 ? 'warn' : ($code >= 300 ? 'info' : 'ok'));
+                    $statusName = ($trace['status'] ?? 'success') === 'error' || $code >= 400 ? 'error' : 'success';
+                @endphp
+                <tr class="row" data-status="{{ $statusName }}" data-method="{{ strtolower($method) }}" data-route="{{ strtolower(($trace['name'] ?? '').' '.($trace['url'] ?? '')) }}" data-code="{{ $code }}" data-dur="{{ $duration }}" onclick="location.href='{{ route('lookout.request-detail', $trace['trace_id']) }}'">
+                    <td><span class="badge {{ in_array($method, ['POST', 'PUT', 'PATCH'], true) ? 'ok' : ($method === 'DELETE' ? 'err' : 'info') }}">{{ $method }}</span></td>
+                    <td><div class="stack"><span class="route truncate">{{ $trace['name'] }}</span><span class="sm truncate">{{ $trace['url'] ?? '' }}</span></div></td>
+                    <td><span class="badge {{ $statusTone }}">{{ $code > 0 ? $code : 'n/a' }}</span></td>
+                    <td class="num dur {{ $duration > 1000 ? 'vslow' : ($duration > 500 ? 'slow' : '') }}">{{ number_format($duration) }}ms</td>
+                    <td class="num subtle">{{ isset($trace['memory_peak']) ? number_format($trace['memory_peak'] / 1024 / 1024, 1).'MB' : 'n/a' }}</td>
+                    <td class="t-time">{{ $trace['timestamp'] }}</td>
+                </tr>
+            @empty
+                <tr><td colspan="6"><div class="empty"><h4>No requests recorded</h4><p>Generate traffic or adjust the filters to see request traces.</p></div></td></tr>
+            @endforelse
             </tbody>
         </table>
-        @if(empty($traces))
-            <div class="empty-state">No requests recorded yet.</div>
-        @endif
     </div>
 </div>
 @endsection

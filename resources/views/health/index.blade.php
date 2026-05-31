@@ -2,76 +2,51 @@
 @section('title', 'Health')
 @section('content')
 @php
-    $payload = is_array($health['payload_budget'] ?? null) ? $health['payload_budget'] : [];
+    $payload = $health['payload_budget'] ?? [];
+    $budget = (int) ($payload['max_request_body_bytes'] ?? 0);
+    $largest = (int) ($payload['largest_original_request_body_bytes'] ?? 0);
+    $budgetPct = $budget > 0 ? min(100, round(($largest / $budget) * 100)) : 0;
 @endphp
-<div class="space-y-6">
-    <h1 class="page-title">Health</h1>
 
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="stat-card" style="border-left-color: #22c55e">
-            <div class="stat-label">Status</div>
-            <div class="stat-value text-green-600">{{ strtoupper($health['status'] ?? 'unknown') }}</div>
-            <div class="text-[11px] text-slate-400 mt-1">Storage connection</div>
-        </div>
-        <div class="stat-card" style="border-left-color: #6366f1">
-            <div class="stat-label">Traces</div>
-            <div class="stat-value text-slate-900">{{ number_format($health['trace_count'] ?? 0) }}</div>
-            <div class="text-[11px] text-slate-400 mt-1">{{ number_format($health['event_count'] ?? 0) }} events</div>
-        </div>
-        <div class="stat-card" style="border-left-color: #0ea5e9">
-            <div class="stat-label">Storage Size</div>
-            <div class="stat-value text-slate-900">{{ number_format($health['storage_size_mb'] ?? 0, 2) }}<span class="text-sm font-normal text-slate-400 ml-1">MB</span></div>
-            <div class="text-[11px] text-slate-400 mt-1">{{ number_format($health['storage_size_bytes'] ?? 0) }} bytes</div>
-        </div>
-        <div class="stat-card" style="border-left-color: #f59e0b">
-            <div class="stat-label">Recent Requests</div>
-            <div class="stat-value text-slate-900">{{ number_format($health['recent_requests_5m'] ?? 0) }}</div>
-            <div class="text-[11px] text-slate-400 mt-1">Last 5 minutes</div>
-        </div>
-    </div>
+<div class="page-title-row">
+    <span class="pt">Health</span>
+    <span class="psub">Storage, retention, and capture budget checks</span>
+    <div class="right"><a class="btn sm" href="{{ route('lookout.health') }}">Re-run check</a></div>
+</div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="section-card">
-            <div class="section-header">Retention</div>
-            <dl class="p-5 grid grid-cols-2 gap-4 text-sm">
-                <div>
-                    <dt class="text-xs uppercase tracking-wide text-slate-400 font-semibold">Retention Days</dt>
-                    <dd class="mt-1 text-slate-900 font-medium">{{ number_format($health['retention_days'] ?? 0) }}</dd>
-                </div>
-                <div>
-                    <dt class="text-xs uppercase tracking-wide text-slate-400 font-semibold">Prune Chance</dt>
-                    <dd class="mt-1 text-slate-900 font-medium">1 / {{ number_format($health['prune_chance'] ?? 0) }}</dd>
-                </div>
-                <div>
-                    <dt class="text-xs uppercase tracking-wide text-slate-400 font-semibold">Last Prune</dt>
-                    <dd class="mt-1 text-slate-900 font-medium">{{ $health['last_prune_at'] ?? '-' }}</dd>
-                </div>
-                <div>
-                    <dt class="text-xs uppercase tracking-wide text-slate-400 font-semibold">Deleted Traces</dt>
-                    <dd class="mt-1 text-slate-900 font-medium">{{ $health['last_prune_deleted_traces'] ?? '-' }}</dd>
-                </div>
+<div class="health-hero {{ ($health['status'] ?? 'ok') === 'ok' ? '' : 'bad' }}">
+    <div class="hb-ic"><span class="badge {{ ($health['status'] ?? 'ok') === 'ok' ? 'ok' : 'err' }}">{{ $health['status'] ?? 'unknown' }}</span></div>
+    <div><div class="ht">Lookout storage is {{ $health['status'] ?? 'unknown' }}</div><div class="hs">{{ $health['storage_driver'] ?? 'unknown' }} driver on {{ $health['storage_connection'] ?? 'unknown' }} connection</div></div>
+</div>
+
+<div class="kpi-row" style="grid-template-columns:repeat(4,1fr)">
+    <div class="kpi"><span class="k-lbl">Traces</span><span class="k-val">{{ number_format($health['trace_count'] ?? 0) }}</span><span class="k-sub">stored traces</span></div>
+    <div class="kpi"><span class="k-lbl">Events</span><span class="k-val">{{ number_format($health['event_count'] ?? 0) }}</span><span class="k-sub">stored child events</span></div>
+    <div class="kpi"><span class="k-lbl">Recent requests</span><span class="k-val">{{ number_format($health['recent_requests_5m'] ?? 0) }}</span><span class="k-sub">last 5 minutes</span></div>
+    <div class="kpi"><span class="k-lbl">Retention</span><span class="k-val">{{ number_format($health['retention_days'] ?? 0) }}<span class="u">d</span></span><span class="k-sub">prune chance 1/{{ $health['prune_chance'] ?? 0 }}</span></div>
+</div>
+
+<div class="grid split" style="grid-template-columns:1fr 1fr">
+    <div class="panel">
+        <div class="panel-h"><h3>Storage</h3></div>
+        <div class="panel-b">
+            <dl class="def-list">
+                <dt>Driver</dt><dd>{{ $health['storage_driver'] ?? 'n/a' }}</dd>
+                <dt>Connection</dt><dd>{{ $health['storage_connection'] ?? 'n/a' }}</dd>
+                <dt>Size</dt><dd>{{ $health['storage_size_mb'] !== null ? number_format($health['storage_size_mb'], 2).' MB' : 'n/a for host-managed SQL' }}</dd>
+                <dt>Last prune</dt><dd>{{ $health['last_prune_at'] ?? 'never' }}</dd>
+                <dt>Deleted traces</dt><dd>{{ $health['last_prune_deleted_traces'] ?? 'n/a' }}</dd>
             </dl>
         </div>
-
-        <div class="section-card">
-            <div class="section-header">Payload Budget</div>
-            <dl class="p-5 grid grid-cols-2 gap-4 text-sm">
-                <div>
-                    <dt class="text-xs uppercase tracking-wide text-slate-400 font-semibold">Max Body Bytes</dt>
-                    <dd class="mt-1 text-slate-900 font-medium">{{ number_format($payload['max_request_body_bytes'] ?? 0) }}</dd>
-                </div>
-                <div>
-                    <dt class="text-xs uppercase tracking-wide text-slate-400 font-semibold">Bodies Captured</dt>
-                    <dd class="mt-1 text-slate-900 font-medium">{{ number_format($payload['request_bodies'] ?? 0) }}</dd>
-                </div>
-                <div>
-                    <dt class="text-xs uppercase tracking-wide text-slate-400 font-semibold">Truncated Bodies</dt>
-                    <dd class="mt-1 text-slate-900 font-medium">{{ number_format($payload['truncated_request_bodies'] ?? 0) }}</dd>
-                </div>
-                <div>
-                    <dt class="text-xs uppercase tracking-wide text-slate-400 font-semibold">Largest Original</dt>
-                    <dd class="mt-1 text-slate-900 font-medium">{{ number_format($payload['largest_original_request_body_bytes'] ?? 0) }}</dd>
-                </div>
+    </div>
+    <div class="panel">
+        <div class="panel-h"><h3>Request body budget</h3><span class="sub">{{ number_format($budget) }} bytes max</span></div>
+        <div class="panel-b">
+            <div class="bar-meter {{ $budgetPct > 90 ? 'err' : ($budgetPct > 70 ? 'warn' : '') }}"><i style="width:{{ $budgetPct }}%"></i></div>
+            <dl class="def-list mt16">
+                <dt>Captured bodies</dt><dd>{{ number_format($payload['request_bodies'] ?? 0) }}</dd>
+                <dt>Truncated bodies</dt><dd>{{ number_format($payload['truncated_request_bodies'] ?? 0) }}</dd>
+                <dt>Largest original</dt><dd>{{ number_format($largest) }} bytes</dd>
             </dl>
         </div>
     </div>

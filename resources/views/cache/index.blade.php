@@ -2,121 +2,55 @@
 @section('title', 'Cache')
 @section('content')
 @php
-    $trendPoints = collect($trend ?? [])->pluck('count')->all();
-    $hitRate = $stats['hit_rate'] ?? 0;
-    $missRate = 100 - $hitRate;
-    $hits = $stats['hits'] ?? 0;
-    $misses = $stats['misses'] ?? 0;
+    use Zasetsu\Lookout\Http\Support\Payload;
+    $trendPoints = collect($trend ?? [])->pluck('count')->map(fn ($v) => (int) $v)->all();
+    $hitRate = (float) ($stats['hit_rate'] ?? 0);
+    $hits = (int) ($stats['hits'] ?? 0);
+    $misses = (int) ($stats['misses'] ?? 0);
+    $writes = (int) ($stats['writes'] ?? 0);
+    $trendValues = implode(',', $trendPoints !== [] ? $trendPoints : [0]);
 @endphp
 
-<div class="space-y-6">
-    <h1 class="page-title">Cache</h1>
+<div class="page-title-row"><span class="pt">Cache</span><span class="psub">Cache hit, miss, write, and forget events</span></div>
 
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="stat-card" style="border-left-color: #22c55e">
-            <div class="stat-label">Hit Rate</div>
-            <div class="stat-value {{ $hitRate >= 80 ? 'text-green-600' : ($hitRate >= 50 ? 'text-amber-600' : 'text-red-600') }}">{{ number_format($hitRate, 1) }}<span class="text-sm font-normal text-slate-400 ml-0.5">%</span></div>
-        </div>
-        <div class="stat-card" style="border-left-color: #22c55e">
-            <div class="stat-label">Hits</div>
-            <div class="stat-value text-green-600">{{ number_format($hits) }}</div>
-        </div>
-        <div class="stat-card" style="border-left-color: #ef4444">
-            <div class="stat-label">Misses</div>
-            <div class="stat-value {{ $misses > 0 ? 'text-red-600' : 'text-green-600' }}">{{ number_format($misses) }}</div>
-        </div>
-        <div class="stat-card" style="border-left-color: #3b82f6">
-            <div class="stat-label">Writes</div>
-            <div class="stat-value text-blue-600">{{ number_format($stats['writes'] ?? 0) }}</div>
-        </div>
-    </div>
-
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="section-card">
-            <div class="section-header">Cache Operations (24h)</div>
-            <div class="p-4">
-                @include('lookout::partials.sparkline', ['data' => $trendPoints, 'width' => 520, 'height' => 80, 'color' => '#22c55e'])
-            </div>
-        </div>
-
-        <div class="section-card">
-            <div class="section-header">Hit / Miss Ratio</div>
-            <div class="p-5 flex items-center justify-center">
-                @if(($stats['total'] ?? 0) > 0)
-                    @php
-                        $total = $stats['total'];
-                        $hitAngle = ($hits / $total) * 360;
-                        $cx = 80; $cy = 80; $r = 60; $sw = 20;
-                        $hitEndX = $cx + $r * cos(deg2rad($hitAngle - 90));
-                        $hitEndY = $cy + $r * sin(deg2rad($hitAngle - 90));
-                        $largeArc = $hitAngle > 180 ? 1 : 0;
-                    @endphp
-                    <svg width="180" height="180" viewBox="0 0 160 160">
-                        <circle cx="{{ $cx }}" cy="{{ $cy }}" r="{{ $r }}" fill="none" stroke="#fee2e2" stroke-width="{{ $sw }}" />
-                        <path d="M {{ $cx }},{{ $cy - $r }} A {{ $r }},{{ $r }} 0 {{ $largeArc }},1 {{ $hitEndX }},{{ $hitEndY }}" fill="none" stroke="#dcfce7" stroke-width="{{ $sw }}" stroke-linecap="butt" />
-                        <text x="{{ $cx }}" y="{{ $cy - 8 }}" text-anchor="middle" font-size="22" font-weight="700" fill="#16a34a">{{ $hitRate }}%</text>
-                        <text x="{{ $cx }}" y="{{ $cy + 12 }}" text-anchor="middle" font-size="11" fill="#64748b">hit rate</text>
-                    </svg>
-                    <div class="flex gap-6 ml-6">
-                        <div class="flex items-center gap-2">
-                            <div class="w-3 h-3 rounded-sm bg-green-100 border border-green-300"></div>
-                            <span class="text-xs text-slate-500">Hits ({{ number_format($hits) }})</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <div class="w-3 h-3 rounded-sm bg-red-100 border border-red-300"></div>
-                            <span class="text-xs text-slate-500">Misses ({{ number_format($misses) }})</span>
-                        </div>
-                    </div>
-                @else
-                    <div class="empty-state text-xs">No cache operations yet</div>
-                @endif
-            </div>
-        </div>
-    </div>
-
-    <div class="section-card">
-        <div class="section-header">Recent Cache Operations</div>
-        <table class="w-full">
-            <thead>
-                <tr class="border-b border-gray-100">
-                    <th class="text-left px-5 py-3">Operation</th>
-                    <th class="text-left px-5 py-3">Key</th>
-                    <th class="text-left px-5 py-3">Store</th>
-                    <th class="text-right px-5 py-3">Time</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-50">
-                @foreach($events as $event)
-                    @php $p = \Zasetsu\Lookout\Http\Support\Payload::decode($event['payload'] ?? null) @endphp
-                    <tr>
-                        <td class="px-5 py-3">
-                            @switch($p['operation'] ?? '')
-                                @case('cache_hit')
-                                    <span class="badge badge-green">Hit</span>
-                                    @break
-                                @case('cache_miss')
-                                    <span class="badge badge-red">Miss</span>
-                                    @break
-                                @case('cache_write')
-                                    <span class="badge badge-blue">Write</span>
-                                    @break
-                                @case('cache_forget')
-                                    <span class="badge badge-gray">Forget</span>
-                                    @break
-                                @default
-                                    <span class="badge badge-gray">{{ $p['operation'] ?? 'unknown' }}</span>
-                            @endswitch
-                        </td>
-                        <td class="px-5 py-3 font-mono text-xs text-slate-600">{{ $p['key'] ?? '&mdash;' }}</td>
-                        <td class="px-5 py-3 text-xs text-slate-500">{{ $p['store'] ?? '&mdash;' }}</td>
-                        <td class="px-5 py-3 text-right text-xs text-slate-400">{{ $event['timestamp'] }}</td>
-                    </tr>
-                @endforeach
-            </tbody>
-        </table>
-        @if(empty($events))
-            <div class="empty-state">No cache operations recorded yet.</div>
-        @endif
-    </div>
+<div class="kpi-row" style="grid-template-columns:repeat(5,1fr)">
+    <div class="kpi"><span class="k-lbl">Hit rate</span><span class="k-val {{ $hitRate >= 80 ? 's-ok' : ($hitRate >= 50 ? 's-warn' : 's-err') }}">{{ number_format($hitRate, 1) }}<span class="u">%</span></span><span class="k-sub">hits vs misses</span></div>
+    <div class="kpi"><span class="k-lbl">Hits</span><span class="k-val s-ok">{{ number_format($hits) }}</span><span class="k-sub">last 24 hours</span></div>
+    <div class="kpi"><span class="k-lbl">Misses</span><span class="k-val {{ $misses > 0 ? 's-warn' : 's-ok' }}">{{ number_format($misses) }}</span><span class="k-sub">last 24 hours</span></div>
+    <div class="kpi"><span class="k-lbl">Writes</span><span class="k-val">{{ number_format($writes) }}</span><span class="k-sub">last 24 hours</span></div>
+    <div class="kpi"><span class="k-lbl">Events</span><span class="k-val">{{ number_format(count($events)) }}</span><span class="k-sub">latest visible</span></div>
 </div>
+
+<div class="panel mb12"><div class="panel-h"><h3>Cache operations</h3><span class="sub">events by hour · last 24h</span></div><div class="panel-b"><div class="js-bars" data-values="{{ $trendValues }}" data-tipunit="events" data-x="oldest|now"></div></div></div>
+
+<div class="filters">
+    <div class="seg-toggle" data-filter-group="op"><button class="on" data-v="all">All</button><button data-v="cache_hit">Hit</button><button data-v="cache_miss">Miss</button><button data-v="cache_write">Write</button><button data-v="cache_forget">Forget</button></div>
+    <div class="field"><label>Store</label><input data-filter="store" data-match="contains" placeholder="store"></div>
+    <div class="field"><label>Key</label><input data-filter="key" data-match="contains" placeholder="key prefix"></div>
+    <span class="result-meta" data-total="{{ count($events) }}">{{ number_format(count($events)) }} shown</span>
+</div>
+
+<div class="table-wrap"><div class="table-scroll"><table class="lk" data-filterable>
+    <thead><tr><th>Operation</th><th>Key</th><th>Store</th><th class="num">Duration</th><th>Time</th></tr></thead>
+    <tbody>
+    @forelse($events as $event)
+        @php
+            $p = Payload::decode($event['payload'] ?? null);
+            $operation = Payload::string($p, 'operation', 'unknown');
+            $key = Payload::string($p, 'key', '');
+            $store = Payload::string($p, 'store', '');
+            $tone = $operation === 'cache_hit' ? 'ok' : ($operation === 'cache_miss' ? 'warn' : ($operation === 'cache_write' ? 'info' : 'neu'));
+        @endphp
+        <tr class="row" data-op="{{ $operation }}" data-store="{{ strtolower($store) }}" data-key="{{ strtolower($key) }}">
+            <td><span class="badge {{ $tone }}">{{ str_replace('cache_', '', $operation) }}</span></td>
+            <td><span class="mono route truncate">{{ $key !== '' ? $key : 'n/a' }}</span></td>
+            <td><span class="badge neu">{{ $store !== '' ? $store : 'default' }}</span></td>
+            <td class="num dur">{{ isset($event['duration']) ? number_format($event['duration']).'ms' : 'n/a' }}</td>
+            <td class="t-time">{{ $event['timestamp'] ?? '' }}</td>
+        </tr>
+    @empty
+        <tr><td colspan="5"><div class="empty"><h4>No cache events</h4><p>Cache operations will appear here when Laravel emits cache events.</p></div></td></tr>
+    @endforelse
+    </tbody>
+</table></div></div>
 @endsection

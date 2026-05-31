@@ -2,81 +2,51 @@
 @section('title', 'Outgoing HTTP')
 @section('content')
 @php
-    $errorCount = 0; $totalReqs = count($requests);
-    foreach($requests as $req) {
-        $p = \Zasetsu\Lookout\Http\Support\Payload::decode($req['payload'] ?? null);
-        $s = array_key_exists('response_status', $p) ? \Zasetsu\Lookout\Http\Support\Payload::number($p, 'response_status') : null;
-        $failed = \Zasetsu\Lookout\Http\Support\Payload::bool($p, 'failed');
-        if ($failed || ($s !== null && $s >= 400)) $errorCount++;
-    }
-    $errorRate = $totalReqs > 0 ? round(($errorCount / $totalReqs) * 100, 1) : 0;
-    $avgDuration = collect($requests)->avg(function($r) { $p = \Zasetsu\Lookout\Http\Support\Payload::decode($r['payload'] ?? null); return \Zasetsu\Lookout\Http\Support\Payload::number($p, 'duration_ms'); }) ?? 0;
+    use Zasetsu\Lookout\Http\Support\Payload;
+    $payloads = collect($requests)->map(fn ($r) => Payload::decode($r['payload'] ?? null));
+    $failed = $payloads->filter(fn ($p) => Payload::bool($p, 'failed') || (int) Payload::number($p, 'response_status') >= 400)->count();
+    $avgDuration = $payloads->avg(fn ($p) => Payload::number($p, 'duration_ms')) ?? 0;
+    $errorRate = count($requests) > 0 ? round(($failed / count($requests)) * 100, 1) : 0;
 @endphp
 
-<div class="space-y-6">
-    <h1 class="page-title">Outgoing HTTP Requests</h1>
+<div class="page-title-row"><span class="pt">Outgoing HTTP</span><span class="psub">External HTTP calls and connection failures</span></div>
 
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="stat-card" style="border-left-color: #6366f1">
-            <div class="stat-label">Total Requests</div>
-            <div class="stat-value text-slate-900">{{ number_format($total) }}</div>
-        </div>
-        <div class="stat-card" style="border-left-color: #0ea5e9">
-            <div class="stat-label">Avg Duration</div>
-            <div class="stat-value text-slate-900">{{ number_format($avgDuration) }}<span class="text-sm font-normal text-slate-400 ml-1">ms</span></div>
-        </div>
-        <div class="stat-card" style="border-left-color: #ef4444">
-            <div class="stat-label">Error Rate</div>
-            <div class="stat-value {{ $errorCount > 0 ? 'text-red-600' : 'text-green-600' }}">{{ $errorRate }}<span class="text-sm font-normal text-slate-400 ml-0.5">%</span></div>
-        </div>
-        <div class="stat-card" style="border-left-color: #8b5cf6">
-            <div class="stat-label">Errors</div>
-            <div class="stat-value {{ $errorCount > 0 ? 'text-red-600' : 'text-green-600' }}">{{ number_format($errorCount) }}</div>
-        </div>
-    </div>
-
-    <div class="section-card">
-        <div class="section-header flex items-center justify-between">
-            <span>Recent Requests</span>
-            <span class="text-[11px] font-normal normal-case tracking-normal text-slate-400">{{ number_format($total) }} requests</span>
-        </div>
-        <table class="w-full">
-            <thead>
-                <tr class="border-b border-gray-100">
-                    <th class="text-left px-5 py-3">Method</th>
-                    <th class="text-left px-5 py-3">URL</th>
-                    <th class="text-left px-5 py-3">Status</th>
-                    <th class="text-right px-5 py-3">Duration</th>
-                    <th class="text-right px-5 py-3">Time</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-50">
-                @foreach($requests as $req)
-                    @php $p = \Zasetsu\Lookout\Http\Support\Payload::decode($req['payload'] ?? null) @endphp
-                    <tr>
-                        <td class="px-5 py-3"><span class="method-badge method-{{ \Zasetsu\Lookout\Http\Support\Payload::string($p, 'method', 'GET') }}">{{ \Zasetsu\Lookout\Http\Support\Payload::string($p, 'method', 'GET') }}</span></td>
-                        <td class="px-5 py-3 font-mono text-xs text-slate-600 max-w-md truncate">{{ \Zasetsu\Lookout\Http\Support\Payload::string($p, 'url', '&mdash;') }}</td>
-                        <td class="px-5 py-3">
-                            @php
-                                $status = \Zasetsu\Lookout\Http\Support\Payload::number($p, 'response_status');
-                                $failed = \Zasetsu\Lookout\Http\Support\Payload::bool($p, 'failed');
-                                $duration = \Zasetsu\Lookout\Http\Support\Payload::number($p, 'duration_ms');
-                            @endphp
-                            @if($failed)
-                                <span class="badge badge-red">Failed</span>
-                            @else
-                                <span class="badge {{ $status >= 500 ? 'badge-red' : ($status >= 400 ? 'badge-amber' : 'badge-green') }}">{{ $status }}</span>
-                            @endif
-                        </td>
-                        <td class="px-5 py-3 text-right font-mono text-xs {{ $duration > 1000 ? 'duration-critical' : ($duration > 500 ? 'duration-warn' : 'text-slate-500') }}">{{ array_key_exists('duration_ms', $p) ? number_format($duration) . ' ms' : '&mdash;' }}</td>
-                        <td class="px-5 py-3 text-right text-xs text-slate-400">{{ $req['timestamp'] }}</td>
-                    </tr>
-                @endforeach
-            </tbody>
-        </table>
-        @if(empty($requests))
-            <div class="empty-state">No outgoing HTTP requests recorded yet.</div>
-        @endif
-    </div>
+<div class="kpi-row" style="grid-template-columns:repeat(4,1fr)">
+    <div class="kpi"><span class="k-lbl">Total requests</span><span class="k-val">{{ number_format($total) }}</span><span class="k-sub">stored outgoing events</span></div>
+    <div class="kpi"><span class="k-lbl">Avg duration</span><span class="k-val">{{ number_format($avgDuration) }}<span class="u">ms</span></span><span class="k-sub">visible events</span></div>
+    <div class="kpi"><span class="k-lbl">Failures</span><span class="k-val {{ $failed > 0 ? 's-err' : '' }}">{{ number_format($failed) }}</span><span class="k-sub">{{ $errorRate }}% visible error rate</span></div>
+    <div class="kpi"><span class="k-lbl">Visible</span><span class="k-val">{{ number_format(count($requests)) }}</span><span class="k-sub">latest entries</span></div>
 </div>
+
+<div class="filters">
+    <div class="seg-toggle" data-filter-group="state"><button class="on" data-v="all">All</button><button data-v="ok">OK</button><button data-v="failed">Failed</button></div>
+    <div class="field"><label>Host</label><input data-filter="host" data-match="contains" placeholder="hostname"></div>
+    <span class="result-meta" data-total="{{ count($requests) }}">{{ number_format(count($requests)) }} shown</span>
+</div>
+
+<div class="table-wrap"><div class="table-scroll"><table class="lk" data-filterable>
+    <thead><tr><th>Request</th><th>Status</th><th class="num">Duration</th><th>Time</th></tr></thead>
+    <tbody>
+    @forelse($requests as $request)
+        @php
+            $p = Payload::decode($request['payload'] ?? null);
+            $method = Payload::string($p, 'method', 'GET');
+            $url = Payload::string($p, 'url', $request['labels'] ?? '');
+            $host = parse_url($url, PHP_URL_HOST) ?: $url;
+            $status = (int) Payload::number($p, 'response_status');
+            $isFailed = Payload::bool($p, 'failed') || $status >= 400 || $status === 0;
+            $duration = (int) Payload::number($p, 'duration_ms', (float) ($request['duration'] ?? 0));
+        @endphp
+        <tr class="row" data-state="{{ $isFailed ? 'failed' : 'ok' }}" data-host="{{ strtolower((string) $host) }}" data-expand>
+            <td><div class="stack"><span class="route mono truncate">{{ $method }} {{ $url }}</span><span class="sm truncate">{{ $host }}</span></div></td>
+            <td><span class="badge {{ $isFailed ? 'err' : 'ok' }}">{{ $isFailed && $status === 0 ? 'failed' : $status }}</span></td>
+            <td class="num dur {{ $duration > 1000 ? 'slow' : '' }}">{{ number_format($duration) }}ms</td>
+            <td class="t-time">{{ $request['timestamp'] ?? '' }}</td>
+        </tr>
+        <tr class="detail-row"><td colspan="4"><div class="detail-inner"><pre class="code">{{ json_encode($p, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre></div></td></tr>
+    @empty
+        <tr><td colspan="4"><div class="empty"><h4>No outgoing HTTP events</h4><p>Laravel HTTP client events will appear here.</p></div></td></tr>
+    @endforelse
+    </tbody>
+</table></div></div>
 @endsection

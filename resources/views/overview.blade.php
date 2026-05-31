@@ -2,134 +2,133 @@
 @section('title', 'Overview')
 @section('content')
 @php
-    $volumePoints = collect($volume ?? [])->pluck('count')->all();
+    $volumePoints = collect($volume ?? [])->pluck('count')->map(fn ($v) => (int) $v)->all();
     $totalReqs = array_sum($volumePoints);
     $reqsPerMin = $totalReqs > 0 ? round($totalReqs / 1440, 2) : 0;
-    $errorTotal = ($statusDist['distribution']['5xx'] ?? 0) + ($statusDist['distribution']['4xx'] ?? 0);
-    $errorRate = $statusDist['total'] > 0 ? round(($errorTotal / $statusDist['total']) * 100, 1) : 0;
-
+    $avgDuration = (float) ($summary['avg_duration'] ?? 0);
     $sd = $statusDist['distribution'] ?? [];
-    $sdTotal = $statusDist['total'] ?? 0;
+    $sdTotal = (int) ($statusDist['total'] ?? 0);
+    $two = (int) ($sd['2xx'] ?? 0);
+    $three = (int) ($sd['3xx'] ?? 0);
+    $four = (int) ($sd['4xx'] ?? 0);
+    $five = (int) ($sd['5xx'] ?? 0);
+    $errorTotal = $four + $five;
+    $errorRate = $sdTotal > 0 ? round(($errorTotal / $sdTotal) * 100, 2) : 0;
+    $spark = array_slice($volumePoints, -12);
+    $sparkValues = implode(',', $spark !== [] ? $spark : [0]);
+    $barValues = implode(',', $volumePoints !== [] ? $volumePoints : [0]);
+    $barLabels = collect($volume ?? [])->pluck('hour')->map(fn ($h) => (string) $h)->implode('|');
+    $topSlowRoutes = $summary['top_slow_routes'] ?? [];
 @endphp
 
-<div class="space-y-6">
-    <h1 class="page-title">Overview</h1>
+<div class="page-title-row">
+    <span class="pt">Overview</span>
+    <span class="psub">System health · {{ app()->environment() }} · last 24 hours</span>
+    <div class="right">
+        <a class="btn sm" href="{{ route('lookout.overview') }}">Refresh</a>
+    </div>
+</div>
 
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="stat-card" style="border-left-color: #6366f1">
-            <div class="stat-label">Requests</div>
-            <div class="stat-value text-slate-900">{{ number_format($totalReqs) }}</div>
-            <div class="text-[11px] text-slate-400 mt-1">{{ $reqsPerMin }} req/min (24h)</div>
+<div class="kpi-row" style="grid-template-columns:repeat(5,1fr)">
+    <div class="kpi">
+        <span class="k-lbl">Requests</span>
+        <span class="k-val">{{ number_format($totalReqs) }}</span>
+        <span class="k-sub">{{ $reqsPerMin }} req/min · last 24h</span>
+    </div>
+    <div class="kpi">
+        <span class="k-lbl">Avg response</span>
+        <span class="k-val">{{ number_format($avgDuration) }}<span class="u">ms</span></span>
+        <span class="k-sub">Across sampled request traces</span>
+    </div>
+    <div class="kpi">
+        <span class="k-lbl">Error rate</span>
+        <span class="k-val {{ $errorTotal > 0 ? 's-err' : 's-ok' }}">{{ $errorRate }}<span class="u">%</span></span>
+        <span class="k-sub">{{ number_format($errorTotal) }} errors of {{ number_format($sdTotal) }}</span>
+    </div>
+    <div class="kpi">
+        <span class="k-lbl">Unresolved exceptions</span>
+        <span class="k-val {{ ($summary['unresolved_groups'] ?? 0) > 0 ? 's-warn' : '' }}">{{ number_format($summary['unresolved_groups'] ?? 0) }}</span>
+        <span class="k-sub">{{ number_format($summary['total_exceptions'] ?? 0) }} exception events</span>
+    </div>
+    <div class="kpi">
+        <span class="k-lbl">Throughput</span>
+        <span class="k-val">{{ number_format($reqsPerMin, 2) }}<span class="u">/min</span></span>
+        <div class="js-spark" data-values="{{ $sparkValues }}" data-hi="3"></div>
+    </div>
+</div>
+
+<div class="stat-tiles mb12">
+    @foreach([
+        ['label' => '2xx Success', 'value' => $two, 'color' => 'var(--c2xx)'],
+        ['label' => '3xx Redirect', 'value' => $three, 'color' => 'var(--c3xx)'],
+        ['label' => '4xx Client', 'value' => $four, 'color' => 'var(--c4xx)'],
+        ['label' => '5xx Server', 'value' => $five, 'color' => 'var(--c5xx)', 'error' => true],
+    ] as $tile)
+        @php $pct = $sdTotal > 0 ? round(($tile['value'] / $sdTotal) * 100, 1) : 0; @endphp
+        <div class="tile">
+            <span class="bar-accent" style="background:{{ $tile['color'] }}"></span>
+            <div class="t-lbl">{{ $tile['label'] }}</div>
+            <div class="t-val">{{ number_format($tile['value']) }}</div>
+            <div class="t-pct {{ ($tile['error'] ?? false) && $tile['value'] > 0 ? 's-err' : '' }}">{{ $pct }}% of traffic</div>
         </div>
-        <div class="stat-card" style="border-left-color: #0ea5e9">
-            <div class="stat-label">Avg Response</div>
-            <div class="stat-value text-slate-900">{{ number_format($summary['avg_duration'] ?? 0) }}<span class="text-sm font-normal text-slate-400 ml-1">ms</span></div>
-            <div class="text-[11px] text-slate-400 mt-1">Last 24 hours</div>
+    @endforeach
+</div>
+
+<div class="panel mb12">
+    <div class="panel-h">
+        <h3>Request volume</h3>
+        <span class="sub">requests per hour · last 24h</span>
+        <div class="right"><a class="more" href="{{ route('lookout.requests') }}">Open Requests</a></div>
+    </div>
+    <div class="panel-b">
+        <div class="js-bars" data-tipunit="req" data-values="{{ $barValues }}" data-labels="{{ e($barLabels) }}" data-x="oldest|now"></div>
+    </div>
+</div>
+
+<div class="grid" style="grid-template-columns:1.45fr 1fr">
+    <div class="panel">
+        <div class="panel-h">
+            <h3>Top slow routes</h3>
+            <div class="right"><a class="more" href="{{ route('lookout.requests') }}">All requests</a></div>
         </div>
-        <div class="stat-card" style="border-left-color: {{ $errorTotal > 0 ? '#ef4444' : '#22c55e' }}">
-            <div class="stat-label">Error Rate</div>
-            <div class="stat-value {{ $errorTotal > 0 ? 'text-red-600' : 'text-green-600' }}">{{ $errorRate }}<span class="text-sm font-normal text-slate-400 ml-0.5">%</span></div>
-            <div class="text-[11px] {{ $errorTotal > 0 ? 'text-red-400' : 'text-slate-400' }} mt-1">{{ $errorTotal }} errors (24h)</div>
-        </div>
-        <div class="stat-card" style="border-left-color: #f59e0b">
-            <div class="stat-label">Exceptions</div>
-            <div class="stat-value {{ ($summary['unresolved_groups'] ?? 0) > 0 ? 'text-amber-600' : 'text-slate-900' }}">{{ number_format($summary['unresolved_groups'] ?? 0) }}</div>
-            <div class="text-[11px] text-slate-400 mt-1">Unresolved groups</div>
+        <div class="table-scroll">
+            <table class="lk">
+                <thead><tr><th>Route</th><th class="num">Avg duration</th><th class="num">Requests</th></tr></thead>
+                <tbody>
+                @forelse($topSlowRoutes as $route)
+                    <tr class="row" onclick="location.href='{{ route('lookout.requests', ['route' => $route['name'] ?? '']) }}'">
+                        <td><div class="stack"><span class="route truncate">{{ $route['name'] ?? 'unknown' }}</span><span class="sm">request route</span></div></td>
+                        <td class="num dur {{ ($route['avg_duration'] ?? 0) > 1000 ? 'vslow' : (($route['avg_duration'] ?? 0) > 500 ? 'slow' : '') }}">{{ number_format($route['avg_duration'] ?? 0, 1) }}ms</td>
+                        <td class="num subtle">{{ number_format($route['count'] ?? 0) }}</td>
+                    </tr>
+                @empty
+                    <tr><td colspan="3"><div class="empty"><h4>No request data yet</h4><p>Lookout will populate slow routes after request traces are stored.</p></div></td></tr>
+                @endforelse
+                </tbody>
+            </table>
         </div>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="section-card">
-            <div class="section-header">Request Volume (24h)</div>
-            <div class="p-4">
-                @include('lookout::partials.sparkline', ['data' => $volumePoints, 'width' => 520, 'height' => 80, 'color' => '#6366f1'])
-            </div>
+    <div class="panel">
+        <div class="panel-h">
+            <h3>Top exceptions</h3>
+            <div class="right"><a class="more" href="{{ route('lookout.exceptions') }}">All exceptions</a></div>
         </div>
-
-        <div class="section-card">
-            <div class="section-header">Status Code Distribution</div>
-            <div class="p-5 space-y-3">
-                @php
-                $statusLabels = ['2xx' => '2xx Success', '3xx' => '3xx Redirect', '4xx' => '4xx Client Error', '5xx' => '5xx Server Error'];
-                $statusColors = ['2xx' => ['bg' => '#22c55e', 'text' => 'text-green-600'], '3xx' => ['bg' => '#0ea5e9', 'text' => 'text-sky-600'], '4xx' => ['bg' => '#f59e0b', 'text' => 'text-amber-600'], '5xx' => ['bg' => '#ef4444', 'text' => 'text-red-600']];
-                @endphp
-                @foreach(['2xx', '3xx', '4xx', '5xx'] as $range)
-                    @php $count = $sd[$range] ?? 0; $pct = $sdTotal > 0 ? round(($count / $sdTotal) * 100, 1) : 0; @endphp
-                    <div>
-                        <div class="flex justify-between text-xs mb-1">
-                            <span class="text-slate-500">{{ $statusLabels[$range] }}</span>
-                            <span class="font-medium {{ $statusColors[$range]['text'] }}">{{ number_format($count) }} ({{ $pct }}%)</span>
-                        </div>
-                        <div class="w-full bg-gray-100 rounded-full h-2">
-                            <div class="h-2 rounded-full" style="width:{{ $pct }}%; background:{{ $statusColors[$range]['bg'] }}"></div>
-                        </div>
-                    </div>
-                @endforeach
-                @if($sdTotal === 0)
-                    <div class="empty-state text-xs">No request data yet</div>
-                @endif
-            </div>
-        </div>
-    </div>
-
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="section-card" style="padding: 0;">
-            <div class="section-header">Top Slow Routes</div>
-            @if(!empty($summary['top_slow_routes']))
-                <table class="w-full">
-                    <thead>
-                        <tr>
-                            <th class="text-left px-5 py-3">Route</th>
-                            <th class="text-right px-5 py-3">Avg Duration</th>
-                            <th class="text-right px-5 py-3">Count</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-100">
-                        @foreach($summary['top_slow_routes'] as $route)
-                            <tr>
-                                <td class="px-5 py-3 font-mono text-xs">{{ $route['name'] }}</td>
-                                <td class="px-5 py-3 text-right {{ ($route['avg_duration'] ?? 0) > 500 ? 'duration-warn' : '' }}">
-                                    <span class="font-mono text-xs">{{ number_format($route['avg_duration'] ?? 0, 1) }} ms</span>
-                                </td>
-                                <td class="px-5 py-3 text-right text-slate-500 text-xs">{{ number_format($route['count'] ?? 0) }}</td>
-                            </tr>
-                        @endforeach
-                    </tbody>
-                </table>
-            @else
-                <div class="empty-state">No data yet</div>
-            @endif
-        </div>
-
-        <div class="section-card" style="padding: 0;">
-            <div class="section-header">Top Exceptions</div>
-            @if(!empty($topExceptions))
-                <table class="w-full">
-                    <thead>
-                        <tr>
-                            <th class="text-left px-5 py-3">Exception</th>
-                            <th class="text-right px-5 py-3">Occurrences</th>
-                            <th class="text-right px-5 py-3">Last Seen</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-100">
-                        @foreach($topExceptions as $ex)
-                            <tr>
-                                <td class="px-5 py-3">
-                                    <a href="{{ route('lookout.exception-detail', $ex['id']) }}" class="text-xs text-indigo-600 hover:text-indigo-800 hover:underline font-medium">{{ class_basename($ex['exception_class']) }}</a>
-                                    <p class="text-[11px] text-slate-400 truncate max-w-xs">{{ $ex['message'] }}</p>
-                                </td>
-                                <td class="px-5 py-3 text-right">
-                                    <span class="badge {{ ($ex['occurrence_count'] ?? 0) > 5 ? 'badge-red' : 'badge-amber' }}">{{ number_format($ex['occurrence_count']) }}</span>
-                                </td>
-                                <td class="px-5 py-3 text-right text-xs text-slate-400">{{ $ex['last_seen'] }}</td>
-                            </tr>
-                        @endforeach
-                    </tbody>
-                </table>
-            @else
-                <div class="empty-state">No exceptions yet</div>
-            @endif
+        <div class="table-scroll">
+            <table class="lk">
+                <thead><tr><th>Exception</th><th class="num">Count</th><th>Last seen</th></tr></thead>
+                <tbody>
+                @forelse($topExceptions as $ex)
+                    <tr class="row" onclick="location.href='{{ route('lookout.exception-detail', $ex['id']) }}'">
+                        <td><div class="stack"><span class="route mono truncate">{{ class_basename($ex['exception_class'] ?? 'Exception') }}</span><span class="sm truncate">{{ $ex['message'] ?? '' }}</span></div></td>
+                        <td class="num"><span class="badge {{ ($ex['occurrence_count'] ?? 0) > 5 ? 'err' : 'warn' }}">{{ number_format($ex['occurrence_count'] ?? 0) }}</span></td>
+                        <td class="t-time">{{ $ex['last_seen'] ?? '' }}</td>
+                    </tr>
+                @empty
+                    <tr><td colspan="3"><div class="empty"><h4>No exceptions yet</h4><p>Exception groups will appear here when Lookout records failures.</p></div></td></tr>
+                @endforelse
+                </tbody>
+            </table>
         </div>
     </div>
 </div>

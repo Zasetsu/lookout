@@ -1,60 +1,63 @@
 @extends('lookout::layouts.app')
-
 @section('title', 'Exception Detail')
-
+@php
+    $pageConfig = [
+        'id' => 'exceptions',
+        'title' => 'Exception Detail',
+        'crumbs' => [
+            ['label' => 'Exceptions', 'href' => route('lookout.exceptions')],
+            ['label' => class_basename($group['exception_class'] ?? 'Exception')],
+        ],
+    ];
+@endphp
 @section('content')
-<div class="space-y-5">
-    <div class="breadcrumb">
-        <a href="{{ route('lookout.exceptions') }}">Exceptions</a>
-        <span class="text-slate-300">/</span>
-        <span class="text-slate-700">Detail</span>
-    </div>
+@php
+    $status = $group['status'] ?? 'unresolved';
+    $tone = $status === 'unresolved' ? 'err' : ($status === 'resolved' ? 'ok' : 'neu');
+@endphp
 
-    @if($group)
-        <div class="section-card">
-            <div class="px-5 py-4 border-b border-gray-100">
-                <div class="flex items-center gap-3">
-                    @php $statusMap = ['unresolved' => 'badge-red', 'resolved' => 'badge-green', 'ignored' => 'badge-gray'] @endphp
-                    <span class="badge {{ $statusMap[$group['status']] ?? 'badge-gray' }}">{{ $group['status'] }}</span>
-                    <h2 class="text-base font-semibold {{ $group['status'] === 'unresolved' ? 'text-red-700' : 'text-slate-700' }}">{{ $group['exception_class'] }}</h2>
-                </div>
-                <p class="mt-2 text-sm text-slate-600 bg-red-50 px-3 py-2 rounded font-mono text-xs">{{ $group['message'] }}</p>
-            </div>
-            <div class="grid grid-cols-2 md:grid-cols-5 gap-0 divide-x divide-gray-100">
-                <div class="px-5 py-3">
-                    <div class="text-[10px] uppercase tracking-wider text-slate-400 mb-1">File</div>
-                    <div class="text-xs font-mono text-slate-700 truncate">{{ basename($group['file']) }}:{{ $group['line'] }}</div>
-                </div>
-                <div class="px-5 py-3">
-                    <div class="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Occurrences</div>
-                    <div class="text-sm font-medium">{{ number_format($group['occurrence_count']) }}</div>
-                </div>
-                <div class="px-5 py-3">
-                    <div class="text-[10px] uppercase tracking-wider text-slate-400 mb-1">First Seen</div>
-                    <div class="text-sm text-slate-500">{{ $group['first_seen'] }}</div>
-                </div>
-                <div class="px-5 py-3">
-                    <div class="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Last Seen</div>
-                    <div class="text-sm text-slate-500">{{ $group['last_seen'] }}</div>
-                </div>
-                <div class="px-5 py-3">
-                    <div class="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Status</div>
-                    @php $statusMap = ['unresolved' => 'badge-red', 'resolved' => 'badge-green', 'ignored' => 'badge-gray'] @endphp
-                    <span class="badge {{ $statusMap[$group['status']] ?? 'badge-gray' }}">{{ $group['status'] }}</span>
-                </div>
-            </div>
-        </div>
-
-        @if($group['file'])
-            <div class="section-card">
-                <div class="section-header">Location</div>
-                <div class="p-4">
-                    <pre class="text-xs bg-slate-800 text-slate-300 p-3 rounded-lg overflow-auto font-mono leading-relaxed">{{ $group['file'] }}:{{ $group['line'] }}</pre>
-                </div>
-            </div>
+<div class="page-title-row">
+    <span class="pt">{{ class_basename($group['exception_class'] ?? 'Exception') }}</span>
+    <span class="psub mono">{{ $group['fingerprint'] ?? '' }}</span>
+    <div class="right">
+        @if(($group['status'] ?? 'unresolved') === 'unresolved')
+            <form method="POST" action="{{ route('lookout.exception-resolve', $group['id']) }}">@csrf<button class="btn primary" type="submit">Resolve</button></form>
+            <form method="POST" action="{{ route('lookout.exception-ignore', $group['id']) }}">@csrf<button class="btn" type="submit">Ignore</button></form>
         @endif
-    @else
-        <div class="section-card"><div class="empty-state">Exception group not found.</div></div>
-    @endif
+    </div>
+</div>
+
+<div class="kpi-row" style="grid-template-columns:repeat(5,1fr)">
+    <div class="kpi"><span class="k-lbl">Status</span><span class="k-val {{ $status === 'unresolved' ? 's-err' : 's-ok' }}">{{ $status }}</span><span class="k-sub">group lifecycle</span></div>
+    <div class="kpi"><span class="k-lbl">Occurrences</span><span class="k-val">{{ number_format($group['occurrence_count'] ?? 0) }}</span><span class="k-sub">all time</span></div>
+    <div class="kpi"><span class="k-lbl">First seen</span><span class="k-val" style="font-size:15px">{{ $group['first_seen'] ?? 'n/a' }}</span><span class="k-sub">created at</span></div>
+    <div class="kpi"><span class="k-lbl">Last seen</span><span class="k-val" style="font-size:15px">{{ $group['last_seen'] ?? 'n/a' }}</span><span class="k-sub">latest recurrence</span></div>
+    <div class="kpi"><span class="k-lbl">Line</span><span class="k-val">{{ $group['line'] ?? 'n/a' }}</span><span class="k-sub">{{ basename($group['file'] ?? '') }}</span></div>
+</div>
+
+<div class="grid split" style="grid-template-columns:1fr 1fr">
+    <div class="panel">
+        <div class="panel-h"><h3>Exception group</h3><span class="badge {{ $tone }}">{{ $status }}</span></div>
+        <div class="panel-b">
+            <dl class="def-list">
+                <dt>Class</dt><dd class="wrap-anywhere">{{ $group['exception_class'] ?? 'n/a' }}</dd>
+                <dt>Message</dt><dd class="wrap-anywhere">{{ $group['message'] ?? 'n/a' }}</dd>
+                <dt>File</dt><dd class="wrap-anywhere">{{ $group['file'] ?? 'n/a' }}</dd>
+                <dt>Line</dt><dd>{{ $group['line'] ?? 'n/a' }}</dd>
+                <dt>Resolved at</dt><dd>{{ $group['resolved_at'] ?? 'not resolved' }}</dd>
+            </dl>
+        </div>
+    </div>
+    <div class="panel">
+        <div class="panel-h"><h3>Operational context</h3></div>
+        <div class="panel-b">
+            <dl class="def-list">
+                <dt>Fingerprint</dt><dd class="wrap-anywhere">{{ $group['fingerprint'] ?? 'n/a' }}</dd>
+                <dt>Created</dt><dd>{{ $group['created_at'] ?? 'n/a' }}</dd>
+                <dt>Updated</dt><dd>{{ $group['updated_at'] ?? 'n/a' }}</dd>
+                <dt>Dashboard action</dt><dd>{{ $status === 'unresolved' ? 'Resolve or ignore this group' : 'No active action' }}</dd>
+            </dl>
+        </div>
+    </div>
 </div>
 @endsection

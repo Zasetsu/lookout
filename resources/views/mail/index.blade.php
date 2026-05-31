@@ -1,53 +1,42 @@
 @extends('lookout::layouts.app')
 @section('title', 'Mail')
 @section('content')
-<div class="space-y-6">
-    <h1 class="page-title">Mail</h1>
+@php use Zasetsu\Lookout\Http\Support\Payload; @endphp
 
-    <div class="grid grid-cols-2 lg:grid-cols-3 gap-4">
-        <div class="stat-card" style="border-left-color: #f59e0b">
-            <div class="stat-label">Total Sent</div>
-            <div class="stat-value text-slate-900">{{ number_format($total) }}</div>
-        </div>
-        <div class="stat-card" style="border-left-color: #6366f1">
-            <div class="stat-label">Unique Subjects</div>
-            <div class="stat-value text-slate-900">{{ number_format($uniqueSubjects ?? 0) }}</div>
-        </div>
-        <div class="stat-card" style="border-left-color: #22c55e">
-            <div class="stat-label">Unique Recipients</div>
-            <div class="stat-value text-slate-900">{{ number_format($uniqueRecipients ?? 0) }}</div>
-        </div>
-    </div>
+<div class="page-title-row"><span class="pt">Mail</span><span class="psub">Sent mail events and recipients</span></div>
 
-    <div class="section-card">
-        <div class="section-header flex items-center justify-between">
-            <span>Recent Mail</span>
-            <span class="text-[11px] font-normal normal-case tracking-normal text-slate-400">{{ number_format($total) }} sent</span>
-        </div>
-        <table class="w-full">
-            <thead>
-                <tr class="border-b border-gray-100">
-                    <th class="text-left px-5 py-3">Subject</th>
-                    <th class="text-left px-5 py-3">To</th>
-                    <th class="text-left px-5 py-3">From</th>
-                    <th class="text-right px-5 py-3">Time</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-50">
-                @foreach($mails as $mail)
-                    @php $p = \Zasetsu\Lookout\Http\Support\Payload::decode($mail['payload'] ?? null) @endphp
-                    <tr>
-                        <td class="px-5 py-3 text-sm font-medium">{{ \Zasetsu\Lookout\Http\Support\Payload::string($p, 'subject', '(No Subject)') }}</td>
-                        <td class="px-5 py-3 text-xs text-slate-500">{{ implode(', ', \Zasetsu\Lookout\Http\Support\Payload::stringList($p, 'to')) }}</td>
-                        <td class="px-5 py-3 text-xs text-slate-500">{{ implode(', ', \Zasetsu\Lookout\Http\Support\Payload::stringList($p, 'from')) }}</td>
-                        <td class="px-5 py-3 text-right text-xs text-slate-400">{{ $mail['timestamp'] }}</td>
-                    </tr>
-                @endforeach
-            </tbody>
-        </table>
-        @if(empty($mails))
-            <div class="empty-state">No mail recorded yet.</div>
-        @endif
-    </div>
+<div class="kpi-row" style="grid-template-columns:repeat(4,1fr)">
+    <div class="kpi"><span class="k-lbl">Total sent</span><span class="k-val">{{ number_format($total) }}</span><span class="k-sub">stored mail events</span></div>
+    <div class="kpi"><span class="k-lbl">Unique subjects</span><span class="k-val">{{ number_format($uniqueSubjects) }}</span><span class="k-sub">visible events</span></div>
+    <div class="kpi"><span class="k-lbl">Unique recipients</span><span class="k-val">{{ number_format($uniqueRecipients) }}</span><span class="k-sub">visible recipients</span></div>
+    <div class="kpi"><span class="k-lbl">Visible</span><span class="k-val">{{ number_format(count($mails)) }}</span><span class="k-sub">latest entries</span></div>
 </div>
+
+<div class="filters">
+    <div class="field"><label>Subject</label><input data-filter="subject" data-match="contains" placeholder="subject text"></div>
+    <div class="field"><label>Recipient</label><input data-filter="to" data-match="contains" placeholder="email"></div>
+    <span class="result-meta" data-total="{{ count($mails) }}">{{ number_format(count($mails)) }} shown</span>
+</div>
+
+<div class="table-wrap"><div class="table-scroll"><table class="lk" data-filterable>
+    <thead><tr><th>Subject</th><th>To</th><th>From</th><th>Time</th></tr></thead>
+    <tbody>
+    @forelse($mails as $mail)
+        @php
+            $p = Payload::decode($mail['payload'] ?? null);
+            $subject = Payload::string($p, 'subject', $mail['labels'] ?? 'Mail');
+            $to = implode(', ', Payload::stringList($p, 'to'));
+            $from = implode(', ', Payload::stringList($p, 'from'));
+        @endphp
+        <tr class="row" data-subject="{{ strtolower($subject) }}" data-to="{{ strtolower($to) }}">
+            <td><span class="route truncate">{{ $subject }}</span></td>
+            <td class="mono subtle truncate">{{ $to !== '' ? $to : 'n/a' }}</td>
+            <td class="mono subtle truncate">{{ $from !== '' ? $from : 'n/a' }}</td>
+            <td class="t-time">{{ $mail['timestamp'] ?? '' }}</td>
+        </tr>
+    @empty
+        <tr><td colspan="4"><div class="empty"><h4>No mail events</h4><p>Mail events will appear here after Laravel sends messages.</p></div></td></tr>
+    @endforelse
+    </tbody>
+</table></div></div>
 @endsection
