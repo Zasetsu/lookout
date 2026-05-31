@@ -64,3 +64,83 @@ jobs:
 
       - name: Run Pest
         run: vendor/bin/pest --parallel
+
+  storage-databases:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - driver: mysql
+            php: 8.3
+            laravel: 12.*
+            testbench: 10.*
+            pest: ^3.8
+            pest_laravel: ^3.2
+            db_port: 3306
+          - driver: pgsql
+            php: 8.3
+            laravel: 12.*
+            testbench: 10.*
+            pest: ^3.8
+            pest_laravel: ^3.2
+            db_port: 5432
+
+    name: Storage ${{ matrix.driver }} - PHP ${{ matrix.php }} - Laravel ${{ matrix.laravel }}
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: lookout
+          MYSQL_USER: lookout
+          MYSQL_PASSWORD: password
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: lookout
+          POSTGRES_USER: lookout
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U lookout -d lookout"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      LOOKOUT_TEST_STORAGE_DRIVER: ${{ matrix.driver }}
+      LOOKOUT_STORAGE_DRIVER: ${{ matrix.driver }}
+      LOOKOUT_STORAGE_CONNECTION: lookout
+      LOOKOUT_TEST_DB_HOST: 127.0.0.1
+      LOOKOUT_TEST_DB_PORT: ${{ matrix.db_port }}
+      LOOKOUT_TEST_DB_DATABASE: lookout
+      LOOKOUT_TEST_DB_USERNAME: lookout
+      LOOKOUT_TEST_DB_PASSWORD: password
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: dom, curl, libxml, mbstring, zip, sqlite3, pdo_mysql, pdo_pgsql
+          coverage: none
+
+      - name: Install dependencies
+        run: |
+          composer require "illuminate/contracts:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" "pestphp/pest:${{ matrix.pest }}" "pestphp/pest-plugin-laravel:${{ matrix.pest_laravel }}" --dev --no-interaction --no-update
+          composer update -W --prefer-dist --no-interaction --no-progress
+
+      - name: Run storage integration tests
+        run: vendor/bin/pest tests/Feature/Storage/DatabaseStorageTest.php tests/Unit/Alerting/ThresholdEvaluatorTest.php tests/Unit/Console/PruneCommandTest.php

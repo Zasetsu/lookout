@@ -4,11 +4,10 @@ namespace Zasetsu\Lookout\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
-use Symfony\Component\HttpFoundation\Response;
 
 class BasicAuth
 {
-    public function handle(Request $request, Closure $next): Response
+    public function handle(Request $request, Closure $next): mixed
     {
         $user = config('lookout.dashboard.basic_auth.user');
         $pass = config('lookout.dashboard.basic_auth.pass');
@@ -17,8 +16,8 @@ class BasicAuth
             return $next($request);
         }
 
-        $providedUser = $request->getUser();
-        $providedPass = $request->getPassword();
+        $providedUser = $request->headers->get('PHP_AUTH_USER');
+        $providedPass = $request->headers->get('PHP_AUTH_PW');
 
         if (
             is_string($providedUser)

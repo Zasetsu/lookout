@@ -22,9 +22,9 @@ return [
     ],
 
     'storage' => [
-        'driver' => 'sqlite',
-        'connection' => 'lookout',
-        'path' => storage_path('lookout/lookout.sqlite'),
+        'driver' => env('LOOKOUT_STORAGE_DRIVER', 'sqlite'),
+        'connection' => env('LOOKOUT_STORAGE_CONNECTION', 'lookout'),
+        'path' => env('LOOKOUT_STORAGE_PATH', storage_path('lookout/lookout.sqlite')),
         'pragmas' => [
             'journal_mode' => 'WAL',
             'synchronous' => 'NORMAL',

@@ -42,6 +42,12 @@ interface StorageContract
 
     public function getPayloadBudgetStats(): array;
 
+    public function getEnabledThresholds(): array;
+
+    public function getThresholdMetricValue(string $metric, int $windowMinutes): float;
+
+    public function claimThresholdDispatchSlot(int $thresholdId, int $windowMinutes): bool;
+
     public function getEventsByType(string $eventType, array $filters = [], int $limit = 25, int $offset = 0): array;
 
     public function getCacheStats(string $since = '-24 hours'): array;

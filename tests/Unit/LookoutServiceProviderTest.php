@@ -2,6 +2,9 @@
 
 use Illuminate\Support\Facades\Log;
 use Mockery\Mock;
+use Zasetsu\Lookout\LookoutServiceProvider;
+use Zasetsu\Lookout\Storage\DatabaseStorage;
+use Zasetsu\Lookout\Storage\SqliteStorage;
 use Zasetsu\Lookout\Storage\StorageContract;
 use Zasetsu\Lookout\Trace\ExecutionContext;
 use Zasetsu\Lookout\Trace\TraceBuffer;
@@ -91,6 +94,21 @@ class FailingIngestStorageFake implements StorageContract
         return [];
     }
 
+    public function getEnabledThresholds(): array
+    {
+        return [];
+    }
+
+    public function getThresholdMetricValue(string $metric, int $windowMinutes): float
+    {
+        return 0.0;
+    }
+
+    public function claimThresholdDispatchSlot(int $thresholdId, int $windowMinutes): bool
+    {
+        return false;
+    }
+
     public function getEventsByType(string $eventType, array $filters = [], int $limit = 25, int $offset = 0): array
     {
         return [];
@@ -133,6 +151,39 @@ class FailingIngestStorageFake implements StorageContract
 }
 
 describe('LookoutServiceProvider', function () {
+    it('binds sqlite storage and registers the package-managed sqlite connection by default', function () {
+        config([
+            'lookout.storage.driver' => 'sqlite',
+            'lookout.storage.connection' => 'lookout_sqlite_default',
+            'lookout.storage.path' => ':memory:',
+        ]);
+
+        app()->register(LookoutServiceProvider::class, true);
+
+        expect(app(StorageContract::class))->toBeInstanceOf(SqliteStorage::class)
+            ->and(config('database.connections.lookout_sqlite_default.driver'))->toBe('sqlite')
+            ->and(config('database.connections.lookout_sqlite_default.database'))->toBe(':memory:');
+    });
+
+    it('binds database storage without overwriting host-managed non-sqlite connections', function (string $driver) {
+        config([
+            'lookout.storage.driver' => $driver,
+            'lookout.storage.connection' => 'lookout_external',
+            'database.connections.lookout_external' => [
+                'driver' => 'sqlite',
+                'database' => ':memory:',
+                'prefix' => 'existing_',
+            ],
+        ]);
+
+        app()->register(LookoutServiceProvider::class, true);
+
+        expect(app(StorageContract::class))->toBeInstanceOf(DatabaseStorage::class)
+            ->and(config('database.connections.lookout_external.driver'))->toBe('sqlite')
+            ->and(config('database.connections.lookout_external.database'))->toBe(':memory:')
+            ->and(config('database.connections.lookout_external.prefix'))->toBe('existing_');
+    })->with(['mysql', 'pgsql']);
+
     it('drops terminating traces when ingest dispatch fails', function () {
         config([
             'queue.default' => 'sync',

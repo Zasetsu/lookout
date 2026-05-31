@@ -29,6 +29,6 @@ class WorkCommand extends Command
             '--stop-when-empty' => false,
         ]);
 
-        return self::SUCCESS;
+        return 0;
     }
 }

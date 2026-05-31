@@ -21,17 +21,25 @@ class InstallCommand extends Command
 
     public function handle(): int
     {
-        $storagePath = config('lookout.storage.path', storage_path('lookout/lookout.sqlite'));
+        $driver = (string) config('lookout.storage.driver', 'sqlite');
+        $connection = (string) config('lookout.storage.connection', 'lookout');
 
-        $directory = dirname($storagePath);
-        if (! File::exists($directory)) {
-            File::makeDirectory($directory, 0755, true);
-            $this->info("Created storage directory: {$directory}");
-        }
+        $this->info("Storage driver: {$driver}");
+        $this->info("Storage connection: {$connection}");
 
-        if (! File::exists($storagePath)) {
-            File::put($storagePath, '');
-            $this->info("Created SQLite database: {$storagePath}");
+        if ($driver === 'sqlite') {
+            $storagePath = config('lookout.storage.path', storage_path('lookout/lookout.sqlite'));
+
+            $directory = dirname($storagePath);
+            if (! File::exists($directory)) {
+                File::makeDirectory($directory, 0755, true);
+                $this->info("Created storage directory: {$directory}");
+            }
+
+            if (! File::exists($storagePath)) {
+                File::put($storagePath, '');
+                $this->info("Created SQLite database: {$storagePath}");
+            }
         }
 
         $this->call('vendor:publish', [
@@ -66,7 +74,7 @@ class InstallCommand extends Command
         $this->line('  3. Run: php artisan lookout:work');
         $this->line('  4. Visit: /lookout');
 
-        return self::SUCCESS;
+        return 0;
     }
 
     protected function publishedMigrationPaths(): array

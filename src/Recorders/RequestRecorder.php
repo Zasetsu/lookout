@@ -88,7 +88,7 @@ class RequestRecorder implements RecorderContract
         }
 
         $body = $request->except(
-            array_keys($request->file() ?? [])
+            array_keys($request->file())
         );
 
         $encoded = json_encode($body, JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);

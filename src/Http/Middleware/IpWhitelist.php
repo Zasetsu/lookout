@@ -4,11 +4,10 @@ namespace Zasetsu\Lookout\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
-use Symfony\Component\HttpFoundation\Response;
 
 class IpWhitelist
 {
-    public function handle(Request $request, Closure $next): Response
+    public function handle(Request $request, Closure $next): mixed
     {
         $allowedIps = config('lookout.dashboard.allowed_ips', []);
 

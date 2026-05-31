@@ -100,6 +100,21 @@ class ExceptionRecorderStorageFake implements StorageContract
         return [];
     }
 
+    public function getEnabledThresholds(): array
+    {
+        return [];
+    }
+
+    public function getThresholdMetricValue(string $metric, int $windowMinutes): float
+    {
+        return 0.0;
+    }
+
+    public function claimThresholdDispatchSlot(int $thresholdId, int $windowMinutes): bool
+    {
+        return false;
+    }
+
     public function getEventsByType(string $eventType, array $filters = [], int $limit = 25, int $offset = 0): array
     {
         return [];

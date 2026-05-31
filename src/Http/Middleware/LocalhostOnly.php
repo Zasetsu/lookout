@@ -4,11 +4,10 @@ namespace Zasetsu\Lookout\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
-use Symfony\Component\HttpFoundation\Response;
 
 class LocalhostOnly
 {
-    public function handle(Request $request, Closure $next): Response
+    public function handle(Request $request, Closure $next): mixed
     {
         if (! config('lookout.dashboard.localhost_only', false)) {
             return $next($request);

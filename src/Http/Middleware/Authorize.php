@@ -5,11 +5,10 @@ namespace Zasetsu\Lookout\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
-use Symfony\Component\HttpFoundation\Response;
 
 class Authorize
 {
-    public function handle(Request $request, Closure $next): Response
+    public function handle(Request $request, Closure $next): mixed
     {
         if (! config('lookout.dashboard.enabled', false)) {
             abort(404);

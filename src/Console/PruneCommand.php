@@ -19,7 +19,7 @@ class PruneCommand extends Command
         if ($days <= 0) {
             $this->error('Retention days must be greater than zero.');
 
-            return self::FAILURE;
+            return 1;
         }
 
         $this->info("Pruning records older than {$days} days...");
@@ -33,6 +33,6 @@ class PruneCommand extends Command
 
         $this->info("Pruned {$deleted} traces (and their events).");
 
-        return self::SUCCESS;
+        return 0;
     }
 }

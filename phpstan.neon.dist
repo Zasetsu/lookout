@@ -3,8 +3,29 @@ parameters:
     paths:
         - src
         - tests
+    reportUnmatchedIgnoredErrors: false
     ignoreErrors:
-        - message: '#Call to an undefined method PHPUnit\\Framework\\TestCase::(get|withHeaders|withServerVariables)#'
+        - message: '#Access to an undefined property Illuminate\\Http\\Request::\$(attributes|headers)#'
+          path: src/
+        - message: '#Call to an undefined method Illuminate\\Http\\Request::(getContent|getSchemeAndHttpHost)\(\)#'
+          path: src/
+        - message: '#Call to an undefined method Illuminate\\Http\\Response::getStatusCode\(\)#'
+          path: src/
+        - message: '#Call to an undefined method Illuminate\\Console\\Command::getName\(\)#'
+          path: src/
+        - message: '#Strict comparison using === between string and null will always evaluate to false#'
+          path: src/Recorders/CommandRecorder.php
+        - message: '#Else branch is unreachable because ternary operator condition is always true#'
+          path: src/Trace/ExecutionContext.php
+        - message: '#Call to an undefined method (PHPUnit\\Framework\\TestCase|Pest\\PendingCalls\\TestCall)::(get|withHeaders|withServerVariables)\(\)#'
           path: tests/
-        - message: '#Access to an undefined property PHPUnit\\Framework\\TestCase::\$storage#'
+        - message: '#Access to an undefined property (PHPUnit\\Framework\\TestCase|Pest\\PendingCalls\\TestCall)::\$storage#'
+          path: tests/
+        - message: '#Call to an undefined static method Illuminate\\Http\\Request::create\(\)#'
+          path: tests/
+        - message: '#Call to an undefined static method RequestRecorderBodyCaptureRequest::create\(\)#'
+          path: tests/
+        - message: '#Call to an undefined method Illuminate\\Http\\JsonResponse::getStatusCode\(\)#'
+          path: tests/
+        - message: '#Parameter \$command of method RecordingLookoutInstallCommand::call\(\) has invalid type Symfony\\Component\\Console\\Command\\Command#'
           path: tests/

@@ -7,6 +7,8 @@ class RecordingLookoutInstallCommand extends InstallCommand
 {
     public array $calls = [];
 
+    public array $infoLines = [];
+
     public function call($command, array $arguments = [])
     {
         $this->calls[] = [
@@ -14,10 +16,13 @@ class RecordingLookoutInstallCommand extends InstallCommand
             'arguments' => $arguments,
         ];
 
-        return self::SUCCESS;
+        return 0;
     }
 
-    public function info($string, $verbosity = null): void {}
+    public function info($string, $verbosity = null): void
+    {
+        $this->infoLines[] = $string;
+    }
 
     public function line($string, $style = null, $verbosity = null): void {}
 
@@ -62,6 +67,41 @@ describe('InstallCommand', function () {
                 ->and($migrateCall['arguments']['--realpath'])->toBeTrue()
                 ->and(implode(' ', $migrateCall['arguments']['--path']))->toContain($migrationsPath)
                 ->and(implode(' ', $migrateCall['arguments']['--path']))->not->toContain('vendor/zasetsu/lookout/database/migrations');
+        } finally {
+            File::deleteDirectory($databasePath);
+        }
+    });
+
+    it('does not create sqlite files for host-managed database drivers', function () {
+        $databasePath = sys_get_temp_dir().'/lookout-install-test-'.uniqid();
+        $sqlitePath = $databasePath.'/lookout.sqlite';
+        $migrationsPath = $databasePath.'/migrations';
+
+        try {
+            app()->useDatabasePath($databasePath);
+            config([
+                'lookout.storage.driver' => 'mysql',
+                'lookout.storage.connection' => 'lookout_mysql',
+                'lookout.storage.path' => $sqlitePath,
+                'database.connections.lookout_mysql' => [
+                    'driver' => 'sqlite',
+                    'database' => ':memory:',
+                    'prefix' => '',
+                    'foreign_key_constraints' => true,
+                ],
+            ]);
+            File::ensureDirectoryExists($migrationsPath);
+
+            File::put($migrationsPath.'/2026_01_01_000001_create_lookout_traces_table.php', '<?php');
+
+            $command = new RecordingLookoutInstallCommand;
+            $command->handle();
+
+            $migrateCall = collect($command->calls)->firstWhere('command', 'migrate');
+
+            expect(File::exists($sqlitePath))->toBeFalse()
+                ->and($migrateCall['arguments']['--database'])->toBe('lookout_mysql')
+                ->and(implode("\n", $command->infoLines))->toContain('Storage driver: mysql');
         } finally {
             File::deleteDirectory($databasePath);
         }

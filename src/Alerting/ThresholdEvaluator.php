@@ -2,7 +2,6 @@
 
 namespace Zasetsu\Lookout\Alerting;
 
-use Illuminate\Support\Facades\DB;
 use Zasetsu\Lookout\Alerting\Channels\ChannelContract;
 use Zasetsu\Lookout\Storage\StorageContract;
 
@@ -18,14 +17,13 @@ class ThresholdEvaluator
             return [];
         }
 
-        $thresholds = DB::connection(config('lookout.storage.connection', 'lookout'))
-            ->table('lookout_thresholds')
-            ->where('enabled', true)
-            ->get();
+        $thresholds = $this->storage->getEnabledThresholds();
 
         $triggered = [];
 
         foreach ($thresholds as $threshold) {
+            $threshold = (object) $threshold;
+
             if ($this->evaluateThreshold($threshold)) {
                 if ($this->claimDispatchSlot($threshold)) {
                     $this->dispatchAlert($threshold);
@@ -54,51 +52,13 @@ class ThresholdEvaluator
     protected function claimDispatchSlot(object $threshold): bool
     {
         $window = (int) ($threshold->window_minutes ?? 15);
-        $cooldown = now()->subMinutes(max($window, 15))->toDateTimeString();
-        $claimedAt = now()->toDateTimeString();
 
-        return DB::connection(config('lookout.storage.connection', 'lookout'))
-            ->table('lookout_thresholds')
-            ->where('id', $threshold->id)
-            ->where(function ($query) use ($cooldown) {
-                $query->whereNull('last_triggered_at')
-                    ->orWhere('last_triggered_at', '<', $cooldown);
-            })
-            ->update([
-                'last_triggered_at' => $claimedAt,
-                'updated_at' => $claimedAt,
-            ]) > 0;
+        return $this->storage->claimThresholdDispatchSlot((int) $threshold->id, $window);
     }
 
     protected function getMetricValue(string $metric, int $windowMinutes): float
     {
-        $connection = config('lookout.storage.connection', 'lookout');
-        $since = now()->subMinutes($windowMinutes)->toDateTimeString();
-
-        return match ($metric) {
-            'request_duration' => (float) (DB::connection($connection)
-                ->table('lookout_traces')
-                ->where('type', 'request')
-                ->where('timestamp', '>=', $since)
-                ->avg('duration') ?? 0),
-            'exception_count' => (float) DB::connection($connection)
-                ->table('lookout_events')
-                ->where('event_type', 'exception')
-                ->where('timestamp', '>=', $since)
-                ->count(),
-            'slow_query_count' => (float) DB::connection($connection)
-                ->table('lookout_events')
-                ->where('event_type', 'query')
-                ->where('duration', '>=', 500)
-                ->where('timestamp', '>=', $since)
-                ->count(),
-            'failed_job_count' => (float) DB::connection($connection)
-                ->table('lookout_events')
-                ->where('event_type', 'job_failed')
-                ->where('timestamp', '>=', $since)
-                ->count(),
-            default => 0.0,
-        };
+        return $this->storage->getThresholdMetricValue($metric, $windowMinutes);
     }
 
     protected function dispatchAlert(object $threshold): void

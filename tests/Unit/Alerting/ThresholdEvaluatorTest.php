@@ -94,6 +94,42 @@ class ThresholdEvaluatorStorageFake implements StorageContract
         return [];
     }
 
+    public function getEnabledThresholds(): array
+    {
+        return DB::connection('lookout')
+            ->table('lookout_thresholds')
+            ->where('enabled', true)
+            ->get()
+            ->map(fn ($row): array => (array) $row)
+            ->all();
+    }
+
+    public function getThresholdMetricValue(string $metric, int $windowMinutes): float
+    {
+        return match ($metric) {
+            'exception_count' => 1.0,
+            default => 0.0,
+        };
+    }
+
+    public function claimThresholdDispatchSlot(int $thresholdId, int $windowMinutes): bool
+    {
+        $cooldown = now()->subMinutes(max($windowMinutes, 15))->toDateTimeString();
+        $claimedAt = now()->toDateTimeString();
+
+        return DB::connection('lookout')
+            ->table('lookout_thresholds')
+            ->where('id', $thresholdId)
+            ->where(function ($query) use ($cooldown) {
+                $query->whereNull('last_triggered_at')
+                    ->orWhere('last_triggered_at', '<', $cooldown);
+            })
+            ->update([
+                'last_triggered_at' => $claimedAt,
+                'updated_at' => $claimedAt,
+            ]) > 0;
+    }
+
     public function getEventsByType(string $eventType, array $filters = [], int $limit = 25, int $offset = 0): array
     {
         return [];

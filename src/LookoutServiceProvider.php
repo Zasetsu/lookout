@@ -20,8 +20,8 @@ use Zasetsu\Lookout\Recorders\OutgoingHttpRecorder;
 use Zasetsu\Lookout\Recorders\QueryRecorder;
 use Zasetsu\Lookout\Recorders\RequestRecorder;
 use Zasetsu\Lookout\Recorders\ScheduledTaskRecorder;
-use Zasetsu\Lookout\Storage\SqliteStorage;
 use Zasetsu\Lookout\Storage\StorageContract;
+use Zasetsu\Lookout\Storage\StorageDriverResolver;
 use Zasetsu\Lookout\Support\TraceDispatcher;
 use Zasetsu\Lookout\Trace\TraceBuffer;
 
@@ -67,7 +67,8 @@ class LookoutServiceProvider extends PackageServiceProvider
 
     public function packageRegistered(): void
     {
-        $this->app->singleton(StorageContract::class, SqliteStorage::class);
+        $this->app->singleton(StorageDriverResolver::class);
+        $this->app->singleton(StorageContract::class, fn ($app) => $app->make($app->make(StorageDriverResolver::class)->storageClass()));
         $this->app->singleton(TraceBuffer::class);
         $this->app->singleton(Sampler::class);
         $this->app->singleton(AutoSampler::class);
@@ -111,6 +112,10 @@ class LookoutServiceProvider extends PackageServiceProvider
 
     protected function registerLookoutConnection(): void
     {
+        if (! $this->app->make(StorageDriverResolver::class)->shouldRegisterManagedSqliteConnection()) {
+            return;
+        }
+
         $connectionName = config('lookout.storage.connection', 'lookout');
 
         $this->app['config']->set("database.connections.{$connectionName}", [

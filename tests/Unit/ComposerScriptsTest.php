@@ -59,6 +59,20 @@ it('runs CI against every advertised Laravel version', function () {
         ->toContain('pest_laravel: ^4.1');
 });
 
+it('runs focused storage integration jobs for mysql and postgresql', function () {
+    $workflow = file_get_contents(dirname(__DIR__, 2).'/.github/workflows/tests.yml');
+
+    expect($workflow)
+        ->toContain('storage-databases')
+        ->toContain('driver: mysql')
+        ->toContain('driver: pgsql')
+        ->toContain('LOOKOUT_TEST_STORAGE_DRIVER: ${{ matrix.driver }}')
+        ->toContain('mysql:8.4')
+        ->toContain('postgres:16')
+        ->toContain('tests/Feature/Storage/DatabaseStorageTest.php')
+        ->toContain('tests/Unit/Alerting/ThresholdEvaluatorTest.php');
+});
+
 it('keeps release workflow behind the same quality gates as local verification', function () {
     $workflow = file_get_contents(dirname(__DIR__, 2).'/.github/workflows/release.yml');
 
