@@ -5,6 +5,9 @@ namespace Zasetsu\Lookout\Http\Controllers\Api;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Routing\Route;
+use Illuminate\Support\Facades\Validator;
+use Zasetsu\Lookout\Deployments\DeployMarkerPayload;
 use Zasetsu\Lookout\Http\Concerns\NormalizesFilterInput;
 use Zasetsu\Lookout\Storage\StorageContract;
 
@@ -22,7 +25,7 @@ class ApiController extends Controller
                 abort(404);
             }
 
-            $token = config('lookout.api.token');
+            $token = $this->apiTokenForRequest($request);
 
             if (empty($token)) {
                 abort(404);
@@ -36,6 +39,15 @@ class ApiController extends Controller
 
             return $next($request);
         });
+    }
+
+    protected function apiTokenForRequest(Request $request): ?string
+    {
+        $route = $request->route();
+
+        return $route instanceof Route && $route->getActionMethod() === 'storeDeployMarker'
+            ? config('lookout.api.deploy_marker_token')
+            : config('lookout.api.token');
     }
 
     public function health(): JsonResponse
@@ -156,6 +168,52 @@ class ApiController extends Controller
             'data' => $trace,
             'events' => $events,
         ]);
+    }
+
+    public function storeDeployMarker(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'version' => ['required', 'string', 'max:120'],
+            'environment' => ['required', 'string', 'max:80'],
+            'commit' => ['nullable', 'string', 'max:120'],
+            'branch' => ['nullable', 'string', 'max:120'],
+            'author' => ['nullable', 'string', 'max:120'],
+            'source' => ['nullable', 'string', 'max:120'],
+            'compare_url' => ['nullable', 'url', 'max:2048'],
+            'notes' => ['nullable', 'string', 'max:5000'],
+            'deployed_at' => ['nullable', 'date'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Invalid deploy marker payload.',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $payload = DeployMarkerPayload::fromArray(array_merge($validator->validated(), [
+            'deployed_at' => $validator->validated()['deployed_at'] ?? now()->toDateTimeString(),
+        ]));
+
+        $result = $this->storage->upsertDeployMarker($payload);
+        $marker = $result['marker'];
+
+        $this->storage->logAudit('deploy_marker_created', null, $request->ip(), [
+            'marker_id' => (int) ($marker['id'] ?? 0),
+            'version' => (string) ($marker['version'] ?? ''),
+            'environment' => (string) ($marker['environment'] ?? ''),
+            'commit' => $marker['commit'] ?? null,
+            'source' => $marker['source'] ?? null,
+            'created' => (bool) $result['created'],
+            'via' => 'api',
+        ]);
+
+        return response()->json([
+            'data' => $marker,
+            'meta' => [
+                'created' => (bool) $result['created'],
+            ],
+        ], $result['created'] ? 201 : 200);
     }
 
     protected function normalizeDurationFilter(mixed $value): int|false|null

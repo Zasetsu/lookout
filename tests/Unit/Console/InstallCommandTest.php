@@ -48,7 +48,8 @@ describe('InstallCommand', function () {
                 '2026_01_01_000003_create_lookout_exception_groups_table.php',
                 '2026_01_01_000004_create_lookout_thresholds_table.php',
                 '2026_01_01_000005_add_cooldown_minutes_to_lookout_thresholds_table.php',
-                '2026_01_01_000006_create_lookout_audit_log_table.php',
+                '2026_01_01_000006_create_lookout_deploy_markers_table.php',
+                '2026_01_01_000007_create_lookout_audit_log_table.php',
             ] as $fileName) {
                 File::put($migrationsPath.'/'.$fileName, '<?php');
             }

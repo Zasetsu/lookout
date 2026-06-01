@@ -80,6 +80,8 @@ class DashboardController extends Controller
             'volume' => $volume,
             'statusDist' => $statusDist,
             'topExceptions' => $topExceptions,
+            'latestDeployMarker' => $this->latestDeployMarker(),
+            'deployMarkers' => $this->deployMarkersForWindow(),
         ]);
     }
 
@@ -148,6 +150,7 @@ class DashboardController extends Controller
             'volume' => $volume,
             'statusDist' => $statusDist,
             'summary' => $summary,
+            'deployMarkers' => $this->deployMarkersForWindow(),
         ]);
     }
 
@@ -194,6 +197,7 @@ class DashboardController extends Controller
             'total' => $result['total'],
             'trend' => $trend,
             'statusCounts' => $this->storage->getExceptionGroupStatusCounts(),
+            'deployMarkers' => $this->deployMarkersForWindow(),
         ]);
     }
 
@@ -235,6 +239,22 @@ class DashboardController extends Controller
             $userId !== null ? (string) $userId : null,
             $request->ip(),
             ['group_id' => $groupId],
+        );
+    }
+
+    protected function latestDeployMarker(): ?array
+    {
+        $environment = app()->environment();
+
+        return $this->storage->getLatestDeployMarker($environment)
+            ?? $this->storage->getLatestDeployMarker();
+    }
+
+    protected function deployMarkersForWindow(string $since = '-24 hours'): array
+    {
+        return $this->storage->getDeployMarkersBetween(
+            now()->parse($since)->toDateTimeString(),
+            now()->toDateTimeString(),
         );
     }
 

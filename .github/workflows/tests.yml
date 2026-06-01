@@ -143,4 +143,4 @@ jobs:
           composer update -W --prefer-dist --no-interaction --no-progress
 
       - name: Run storage integration tests
-        run: vendor/bin/pest tests/Feature/Storage/DatabaseStorageTest.php tests/Unit/Alerting/ThresholdEvaluatorTest.php tests/Unit/Console/PruneCommandTest.php
+        run: vendor/bin/pest tests/Feature/Storage/DatabaseStorageTest.php tests/Feature/Storage/DatabaseDeployMarkerStorageTest.php tests/Unit/Alerting/ThresholdEvaluatorTest.php tests/Unit/Console/PruneCommandTest.php

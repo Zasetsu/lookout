@@ -19,6 +19,7 @@ return [
     'api' => [
         'enabled' => env('LOOKOUT_API_ENABLED', false),
         'token' => env('LOOKOUT_API_TOKEN'),
+        'deploy_marker_token' => env('LOOKOUT_DEPLOY_MARKER_TOKEN'),
     ],
 
     'storage' => [

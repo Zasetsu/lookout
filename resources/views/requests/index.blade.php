@@ -32,7 +32,10 @@
 <div class="grid mb12" style="grid-template-columns:1.35fr 1fr">
     <div class="panel">
         <div class="panel-h"><h3>Request volume</h3><span class="sub">requests per hour</span></div>
-        <div class="panel-b"><div class="js-bars" data-tipunit="req" data-values="{{ $barValues }}" data-x="oldest|now"></div></div>
+        <div class="panel-b">
+            <div class="js-bars" data-tipunit="req" data-values="{{ $barValues }}" data-x="oldest|now"></div>
+            @include('lookout::partials.deploy-markers', ['deployMarkers' => $deployMarkers ?? []])
+        </div>
     </div>
     <div class="panel">
         <div class="panel-h"><h3>Status distribution</h3><span class="sub">{{ number_format($sdTotal) }} responses</span></div>

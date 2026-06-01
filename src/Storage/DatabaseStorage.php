@@ -101,6 +101,70 @@ class DatabaseStorage implements StorageContract
     }
 
     /**
+     * @param  array<string, mixed>  $row
+     * @return array<string, mixed>
+     */
+    protected function normalizeDeployMarker(array $row): array
+    {
+        unset($row['identity_hash']);
+
+        if (array_key_exists('id', $row)) {
+            $row['id'] = (int) $row['id'];
+        }
+
+        foreach (['version', 'environment', 'commit', 'branch', 'author', 'source', 'compare_url', 'notes', 'deployed_at', 'created_at', 'updated_at'] as $key) {
+            $row[$key] = isset($row[$key]) && $row[$key] !== '' ? (string) $row[$key] : null;
+        }
+
+        return $row;
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     * @return array<string, mixed>
+     */
+    protected function deployMarkerPayload(array $attributes): array
+    {
+        $payload = [];
+
+        foreach (['version', 'environment'] as $key) {
+            $value = trim((string) ($attributes[$key] ?? ''));
+
+            if ($value === '') {
+                throw new \InvalidArgumentException("Deploy marker {$key} is required.");
+            }
+
+            $payload[$key] = $value;
+        }
+
+        foreach (['commit', 'branch', 'author', 'source', 'compare_url', 'notes'] as $key) {
+            $value = $attributes[$key] ?? null;
+            $payload[$key] = is_scalar($value) ? trim((string) $value) : null;
+            $payload[$key] = $payload[$key] !== '' ? $payload[$key] : null;
+        }
+
+        $deployedAt = $attributes['deployed_at'] ?? now()->toDateTimeString();
+        $payload['deployed_at'] = $deployedAt instanceof \DateTimeInterface
+            ? $deployedAt->format('Y-m-d H:i:s')
+            : now()->parse((string) $deployedAt)->toDateTimeString();
+        $payload['identity_hash'] = $this->deployMarkerIdentityHash($payload);
+
+        return $payload;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    protected function deployMarkerIdentityHash(array $payload): string
+    {
+        return hash('sha256', implode("\0", [
+            (string) $payload['environment'],
+            (string) $payload['version'],
+            (string) ($payload['commit'] ?? ''),
+        ]));
+    }
+
+    /**
      * @return array{data: array<int, array<string, mixed>>, total: int}
      */
     protected function paginate(Builder $query, int $limit, int $offset): array
@@ -474,6 +538,100 @@ class DatabaseStorage implements StorageContract
             'truncated_request_bodies' => $truncatedBodies,
             'largest_original_request_body_bytes' => $largestOriginalSize,
         ];
+    }
+
+    public function upsertDeployMarker(array $attributes): array
+    {
+        return $this->storageConnection()->transaction(function () use ($attributes): array {
+            $payload = $this->deployMarkerPayload($attributes);
+            $now = now()->toDateTimeString();
+            $identityHash = $payload['identity_hash'];
+            $created = $this->table('lookout_deploy_markers')->insertOrIgnore(array_merge($payload, [
+                'created_at' => $now,
+                'updated_at' => $now,
+            ])) > 0;
+
+            if (! $created) {
+                $this->table('lookout_deploy_markers')
+                    ->where('identity_hash', $identityHash)
+                    ->update(array_merge($payload, [
+                        'updated_at' => $now,
+                    ]));
+            }
+
+            $marker = $this->table('lookout_deploy_markers')
+                ->where('identity_hash', $identityHash)
+                ->first();
+
+            return [
+                'marker' => $marker ? $this->normalizeDeployMarker((array) $marker) : [],
+                'created' => $created,
+            ];
+        });
+    }
+
+    public function getDeployMarkers(array $filters = [], int $limit = 50, int $offset = 0): array
+    {
+        $query = $this->table('lookout_deploy_markers')->orderBy('deployed_at', 'desc');
+
+        if (isset($filters['environment'])) {
+            $query->where('environment', $filters['environment']);
+        }
+
+        if (isset($filters['version'])) {
+            $query->where('version', $filters['version']);
+        }
+
+        if (isset($filters['since'])) {
+            $query->where('deployed_at', '>=', $filters['since']);
+        }
+
+        $result = $this->paginate($query, $limit, $offset);
+        $result['data'] = array_map(fn (array $row): array => $this->normalizeDeployMarker($row), $result['data']);
+
+        return $result;
+    }
+
+    public function getLatestDeployMarker(?string $environment = null): ?array
+    {
+        $query = $this->table('lookout_deploy_markers')
+            ->orderBy('deployed_at', 'desc')
+            ->orderBy('id', 'desc');
+
+        if ($environment !== null && $environment !== '') {
+            $query->where('environment', $environment);
+        }
+
+        $marker = $query->first();
+
+        return $marker ? $this->normalizeDeployMarker((array) $marker) : null;
+    }
+
+    public function getDeployMarkersBetween(string $from, string $to, ?string $environment = null): array
+    {
+        $query = $this->table('lookout_deploy_markers')
+            ->where('deployed_at', '>=', $from)
+            ->where('deployed_at', '<=', $to)
+            ->orderBy('deployed_at')
+            ->orderBy('id');
+
+        if ($environment !== null && $environment !== '') {
+            $query->where('environment', $environment);
+        }
+
+        return array_map(
+            fn (array $row): array => $this->normalizeDeployMarker($row),
+            $this->rowsToArray($query->get())
+        );
+    }
+
+    protected function getDeployMarkerById(int $id): ?array
+    {
+        $marker = $this->table('lookout_deploy_markers')
+            ->where('id', $id)
+            ->first();
+
+        return $marker ? $this->normalizeDeployMarker((array) $marker) : null;
     }
 
     public function getEnabledThresholds(): array
