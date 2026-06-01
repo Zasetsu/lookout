@@ -35,6 +35,72 @@ class DatabaseStorage implements StorageContract
     }
 
     /**
+     * @param  array<string, mixed>  $row
+     * @return array<string, mixed>
+     */
+    protected function normalizeThresholdRule(array $row): array
+    {
+        $channels = $row['channels'] ?? [];
+
+        if (is_string($channels)) {
+            $decoded = json_decode($channels, true);
+            $channels = is_array($decoded) ? $decoded : [];
+        }
+
+        if (array_key_exists('id', $row)) {
+            $row['id'] = (int) $row['id'];
+        }
+
+        if (array_key_exists('value', $row)) {
+            $row['value'] = (float) $row['value'];
+        }
+
+        $row['channels'] = array_values(is_array($channels) ? $channels : []);
+        $row['enabled'] = (bool) ($row['enabled'] ?? false);
+        $row['window_minutes'] = (int) ($row['window_minutes'] ?? 0);
+        $row['cooldown_minutes'] = (int) ($row['cooldown_minutes'] ?? 15);
+
+        return $row;
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     * @return array<string, mixed>
+     */
+    protected function thresholdRulePayload(array $attributes): array
+    {
+        $payload = array_intersect_key($attributes, array_flip([
+            'name',
+            'metric',
+            'condition',
+            'value',
+            'window_minutes',
+            'cooldown_minutes',
+            'channels',
+            'enabled',
+            'last_triggered_at',
+        ]));
+
+        if (array_key_exists('channels', $payload)) {
+            $payload['channels'] = json_encode(array_values(is_array($payload['channels']) ? $payload['channels'] : []));
+        }
+
+        if (array_key_exists('enabled', $payload)) {
+            $payload['enabled'] = (bool) $payload['enabled'];
+        }
+
+        if (array_key_exists('window_minutes', $payload)) {
+            $payload['window_minutes'] = (int) $payload['window_minutes'];
+        }
+
+        if (array_key_exists('cooldown_minutes', $payload)) {
+            $payload['cooldown_minutes'] = (int) $payload['cooldown_minutes'];
+        }
+
+        return $payload;
+    }
+
+    /**
      * @return array{data: array<int, array<string, mixed>>, total: int}
      */
     protected function paginate(Builder $query, int $limit, int $offset): array
@@ -412,9 +478,92 @@ class DatabaseStorage implements StorageContract
 
     public function getEnabledThresholds(): array
     {
-        return $this->rowsToArray($this->table('lookout_thresholds')
+        return array_map(fn (array $row): array => $this->normalizeThresholdRule($row), $this->rowsToArray($this->table('lookout_thresholds')
             ->where('enabled', true)
-            ->get());
+            ->get()));
+    }
+
+    public function getThresholdRules(array $filters = [], int $limit = 50, int $offset = 0): array
+    {
+        $query = $this->table('lookout_thresholds')->orderBy('id', 'desc');
+
+        if (isset($filters['metric'])) {
+            $query->where('metric', $filters['metric']);
+        }
+
+        if (isset($filters['condition'])) {
+            $query->where('condition', $filters['condition']);
+        }
+
+        if (array_key_exists('enabled', $filters)) {
+            $query->where('enabled', (bool) $filters['enabled']);
+        }
+
+        if (isset($filters['name'])) {
+            $query->where('name', 'like', "%{$filters['name']}%");
+        }
+
+        $result = $this->paginate($query, $limit, $offset);
+        $result['data'] = array_map(fn (array $row): array => $this->normalizeThresholdRule($row), $result['data']);
+
+        return $result;
+    }
+
+    public function getThresholdRule(int $ruleId): ?array
+    {
+        $rule = $this->table('lookout_thresholds')
+            ->where('id', $ruleId)
+            ->first();
+
+        return $rule ? $this->normalizeThresholdRule((array) $rule) : null;
+    }
+
+    public function createThresholdRule(array $attributes): array
+    {
+        $now = now()->toDateTimeString();
+        $payload = array_merge([
+            'cooldown_minutes' => 15,
+            'channels' => json_encode([]),
+            'enabled' => true,
+            'last_triggered_at' => null,
+        ], $this->thresholdRulePayload($attributes), [
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        $id = (int) $this->table('lookout_thresholds')->insertGetId($payload);
+
+        return $this->getThresholdRule($id) ?? [];
+    }
+
+    public function updateThresholdRule(int $ruleId, array $attributes): array
+    {
+        $payload = $this->thresholdRulePayload($attributes);
+        $payload['updated_at'] = now()->toDateTimeString();
+
+        $this->table('lookout_thresholds')
+            ->where('id', $ruleId)
+            ->update($payload);
+
+        $rule = $this->getThresholdRule($ruleId);
+
+        if ($rule === null) {
+            throw new \InvalidArgumentException("Threshold rule [{$ruleId}] does not exist.");
+        }
+
+        return $rule;
+    }
+
+    public function setThresholdRuleEnabled(int $ruleId, bool $enabled): array
+    {
+        return $this->updateThresholdRule($ruleId, ['enabled' => $enabled]);
+    }
+
+    public function deleteThresholdRule(int $ruleId): bool
+    {
+        return $this->table('lookout_thresholds')
+            ->where('id', $ruleId)
+            ->delete() > 0;
     }
 
     public function getThresholdMetricValue(string $metric, int $windowMinutes): float
@@ -439,13 +588,90 @@ class DatabaseStorage implements StorageContract
                 ->where('event_type', 'job_failed')
                 ->where('timestamp', '>=', $since)
                 ->count(),
+            'request_duration_p95' => $this->requestDurationPercentile($since, 95),
+            'error_rate' => $this->requestErrorRate($since),
+            'outgoing_http_failure_count' => $this->outgoingHttpFailureCount($since),
             default => 0.0,
         };
     }
 
-    public function claimThresholdDispatchSlot(int $thresholdId, int $windowMinutes): bool
+    protected function requestDurationPercentile(string $since, int $percentile): float
     {
-        $cooldown = now()->subMinutes(max($windowMinutes, 15))->toDateTimeString();
+        $query = $this->table('lookout_traces')
+            ->where('type', 'request')
+            ->whereNotNull('duration')
+            ->where('timestamp', '>=', $since);
+
+        $total = $query->count();
+
+        if ($total === 0) {
+            return 0.0;
+        }
+
+        $rank = (int) ceil(($percentile / 100) * $total);
+        $offset = max(0, min($rank - 1, $total - 1));
+
+        return (float) ($query->orderBy('duration')->offset($offset)->limit(1)->value('duration') ?? 0);
+    }
+
+    protected function requestErrorRate(string $since): float
+    {
+        $total = $this->table('lookout_traces')
+            ->where('type', 'request')
+            ->where('timestamp', '>=', $since)
+            ->count();
+
+        if ($total === 0) {
+            return 0.0;
+        }
+
+        $failures = $this->table('lookout_traces')
+            ->where('type', 'request')
+            ->where('response_status', '>=', 400)
+            ->where('timestamp', '>=', $since)
+            ->count();
+
+        return round(($failures / $total) * 100, 2);
+    }
+
+    protected function outgoingHttpFailureCount(string $since): float
+    {
+        $query = $this->table('lookout_events')
+            ->where('event_type', 'outgoing_http')
+            ->where('timestamp', '>=', $since);
+
+        $driver = $this->storageConnection()->getDriverName();
+
+        if ($driver === 'pgsql') {
+            return (float) $query
+                ->where(function (Builder $query) {
+                    $query->whereRaw("(payload::jsonb ->> 'failed') = 'true'")
+                        ->orWhereRaw("((payload::jsonb ->> 'response_status') ~ '^[0-9]+$' AND (payload::jsonb ->> 'response_status')::integer >= 400)");
+                })
+                ->count();
+        }
+
+        if (in_array($driver, ['mysql', 'mariadb'], true)) {
+            return (float) $query
+                ->where(function (Builder $query) {
+                    $query->whereRaw("CASE WHEN JSON_VALID(payload) THEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.failed')) ELSE NULL END = 'true'")
+                        ->orWhereRaw("CAST(CASE WHEN JSON_VALID(payload) THEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.response_status')) ELSE '0' END AS UNSIGNED) >= 400");
+                })
+                ->count();
+        }
+
+        return (float) $query
+            ->whereRaw('json_valid(payload) = 1')
+            ->where(function (Builder $query) {
+                $query->whereRaw("json_extract(payload, '$.failed') = 1")
+                    ->orWhereRaw("CAST(json_extract(payload, '$.response_status') AS INTEGER) >= 400");
+            })
+            ->count();
+    }
+
+    public function claimThresholdDispatchSlot(int $thresholdId, int $cooldownMinutes): bool
+    {
+        $cooldown = now()->subMinutes(max($cooldownMinutes, 1))->toDateTimeString();
         $claimedAt = now()->toDateTimeString();
 
         return $this->table('lookout_thresholds')
@@ -458,6 +684,21 @@ class DatabaseStorage implements StorageContract
                 'last_triggered_at' => $claimedAt,
                 'updated_at' => $claimedAt,
             ]) > 0;
+    }
+
+    public function releaseThresholdDispatchSlot(int $thresholdId, ?string $previousLastTriggeredAt, ?string $expectedLastTriggeredAt = null): void
+    {
+        $query = $this->table('lookout_thresholds')
+            ->where('id', $thresholdId);
+
+        if ($expectedLastTriggeredAt !== null) {
+            $query->where('last_triggered_at', $expectedLastTriggeredAt);
+        }
+
+        $query->update([
+            'last_triggered_at' => $previousLastTriggeredAt,
+            'updated_at' => now()->toDateTimeString(),
+        ]);
     }
 
     public function getEventsByType(string $eventType, array $filters = [], int $limit = 25, int $offset = 0): array

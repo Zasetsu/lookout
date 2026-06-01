@@ -341,7 +341,7 @@ Shows application log events with level counts and expandable payload/context de
 
 ### Alerts
 
-Shows threshold trigger history and per-channel alert delivery telemetry.
+Shows threshold rule management, trigger history, and per-channel delivery telemetry. The default tab is `Rules`, where operators can create, edit, enable, disable, delete, dry-run evaluate, and manually dispatch threshold rules. `Trigger History` shows recorded alert deliveries, and `Delivery` shows configured alert channels with safe test actions.
 
 ### Audit
 
@@ -566,20 +566,48 @@ Missing traces return `404`.
 
 Lookout evaluates alert thresholds after traces are ingested and after synchronized exception persistence when alerting is enabled.
 
+Alert rules can be managed from `Alerts > Rules` in the dashboard. The UI supports:
+
+- Creating and editing threshold rules on dedicated pages
+- Enabling and disabling rules
+- Hard-deleting rules
+- Dry-run evaluating a rule against current storage metrics
+- Manually dispatching a rule when its condition is currently met
+- Testing configured delivery channels from the Delivery tab
+- Auditing every operator action
+
 Supported threshold metrics:
 
 | Metric | Meaning |
 | --- | --- |
 | `request_duration` | Average request duration in the threshold window. |
+| `request_duration_p95` | 95th percentile request duration in the threshold window. |
 | `exception_count` | Number of exception events in the threshold window. |
 | `slow_query_count` | Number of query events at or above `500ms` in the threshold window. |
 | `failed_job_count` | Number of failed job events in the threshold window. |
+| `error_rate` | Percentage of request traces with `response_status >= 400` in the threshold window. |
+| `outgoing_http_failure_count` | Number of outgoing HTTP events with `failed=true` or `response_status >= 400`. |
 
 Supported conditions:
 
 ```text
 gt, gte, lt, lte, eq
 ```
+
+Each rule has:
+
+| Field | Meaning |
+| --- | --- |
+| `name` | Operator-facing rule name. |
+| `metric` | One of the supported metrics above. |
+| `condition` | `gt`, `gte`, `lt`, `lte`, or `eq`. |
+| `value` | Numeric threshold value. |
+| `window_minutes` | Metric lookback window, from `1` to `1440` minutes in the dashboard. |
+| `cooldown_minutes` | Minimum time between dispatches for the same rule, from `1` to `10080` minutes in the dashboard. |
+| `channels` | Any configured subset of `email`, `slack`, and `webhook`. |
+| `enabled` | Whether automatic evaluation can dispatch this rule. |
+
+The dashboard only allows saving channels that are configured in `config/lookout.php` or the matching env variables. Channel destinations are masked in the UI so webhook credentials are not exposed.
 
 Thresholds are stored in `lookout_thresholds`. Example seed:
 
@@ -592,6 +620,7 @@ DB::connection(config('lookout.storage.connection', 'lookout'))
         'condition' => 'gte',
         'value' => 5,
         'window_minutes' => 15,
+        'cooldown_minutes' => 30,
         'channels' => json_encode(['slack', 'webhook']),
         'enabled' => true,
         'created_at' => now(),
@@ -599,9 +628,23 @@ DB::connection(config('lookout.storage.connection', 'lookout'))
     ]);
 ```
 
-Cooldown claims are atomic at the storage layer, so concurrent workers do not dispatch duplicate notifications for the same threshold window.
+Cooldown claims are atomic at the storage layer, so concurrent workers do not dispatch duplicate notifications during the configured cooldown window.
 
-Delivery outcomes are written to the audit log with action `threshold_triggered` and displayed on the Alerts page.
+Audit actions include:
+
+| Action | Meaning |
+| --- | --- |
+| `threshold_rule_created` | Operator created a rule. |
+| `threshold_rule_updated` | Operator updated a rule. |
+| `threshold_rule_enabled` | Operator enabled a rule. |
+| `threshold_rule_disabled` | Operator disabled a rule. |
+| `threshold_rule_deleted` | Operator deleted a rule. |
+| `threshold_rule_evaluated` | Operator dry-run evaluated a rule. |
+| `threshold_rule_dispatched` | Operator manually dispatched a rule. |
+| `threshold_channel_tested` | Operator tested an alert channel. |
+| `threshold_triggered` | Automatic or manual threshold delivery telemetry. |
+
+Delivery outcomes are written to the audit log and displayed on the Alerts page. Failed delivery errors are summarized before persistence so HTTP response bodies and transport details are not stored in dashboard audit exports.
 
 ## Privacy and Redaction
 

@@ -28,6 +28,20 @@ function makeTraceContext(string $traceId, array $overrides = []): array
     ], $overrides);
 }
 
+function makeThresholdRuleAttributes(array $overrides = []): array
+{
+    return array_merge([
+        'name' => 'High exceptions',
+        'metric' => 'exception_count',
+        'condition' => 'gte',
+        'value' => 5,
+        'window_minutes' => 10,
+        'cooldown_minutes' => 20,
+        'channels' => ['mail', 'slack'],
+        'enabled' => true,
+    ], $overrides);
+}
+
 describe('SqliteStorage', function () {
     beforeEach(function () {
         $this->storage = new SqliteStorage;
@@ -704,6 +718,134 @@ describe('SqliteStorage', function () {
         expect($health['status'])->toBe('ok');
         expect($health['trace_count'])->toBeGreaterThanOrEqual(1);
         expect($health['last_prune_deleted_traces'])->toBe(12);
+    });
+
+    it('creates lists fetches updates enables disables and deletes threshold rules', function () {
+        $created = $this->storage->createThresholdRule(makeThresholdRuleAttributes([
+            'enabled' => false,
+        ]));
+
+        expect($created['id'])->toBeInt()
+            ->and($created['name'])->toBe('High exceptions')
+            ->and($created['value'])->toBe(5.0)
+            ->and($created['channels'])->toBe(['mail', 'slack'])
+            ->and($created['enabled'])->toBeFalse()
+            ->and($created['cooldown_minutes'])->toBe(20);
+
+        $listed = $this->storage->getThresholdRules(['metric' => 'exception_count', 'enabled' => false], 10, 0);
+
+        expect($listed['total'])->toBe(1)
+            ->and($listed['data'])->toHaveCount(1)
+            ->and($listed['data'][0]['id'])->toBe($created['id'])
+            ->and($listed['data'][0]['channels'])->toBe(['mail', 'slack'])
+            ->and($listed['data'][0]['enabled'])->toBeFalse();
+
+        $fetched = $this->storage->getThresholdRule($created['id']);
+
+        expect($fetched)->not->toBeNull()
+            ->and($fetched['channels'])->toBe(['mail', 'slack'])
+            ->and($fetched['enabled'])->toBeFalse();
+
+        $updated = $this->storage->updateThresholdRule($created['id'], [
+            'name' => 'Slow requests',
+            'metric' => 'request_duration',
+            'value' => 750,
+            'window_minutes' => 5,
+            'cooldown_minutes' => 30,
+            'channels' => ['webhook'],
+            'enabled' => true,
+        ]);
+
+        expect($updated['name'])->toBe('Slow requests')
+            ->and($updated['metric'])->toBe('request_duration')
+            ->and((float) $updated['value'])->toBe(750.0)
+            ->and($updated['window_minutes'])->toBe(5)
+            ->and($updated['cooldown_minutes'])->toBe(30)
+            ->and($updated['channels'])->toBe(['webhook'])
+            ->and($updated['enabled'])->toBeTrue();
+
+        expect($this->storage->setThresholdRuleEnabled($created['id'], false)['enabled'])->toBeFalse()
+            ->and($this->storage->setThresholdRuleEnabled($created['id'], true)['enabled'])->toBeTrue()
+            ->and($this->storage->deleteThresholdRule($created['id']))->toBeTrue()
+            ->and($this->storage->getThresholdRule($created['id']))->toBeNull()
+            ->and($this->storage->deleteThresholdRule($created['id']))->toBeFalse();
+    });
+
+    it('normalizes enabled threshold rules and uses cooldown minutes for dispatch slots', function () {
+        $rule = $this->storage->createThresholdRule(makeThresholdRuleAttributes([
+            'cooldown_minutes' => 25,
+            'channels' => ['mail'],
+        ]));
+
+        $enabled = $this->storage->getEnabledThresholds();
+
+        expect($enabled)->toHaveCount(1)
+            ->and($enabled[0]['id'])->toBeInt()
+            ->and($enabled[0]['value'])->toBe(5.0)
+            ->and($enabled[0]['channels'])->toBe(['mail'])
+            ->and($enabled[0]['enabled'])->toBeTrue()
+            ->and($enabled[0]['cooldown_minutes'])->toBe(25);
+
+        expect($this->storage->claimThresholdDispatchSlot($rule['id'], 25))->toBeTrue()
+            ->and($this->storage->claimThresholdDispatchSlot($rule['id'], 25))->toBeFalse();
+
+        DB::connection('lookout')
+            ->table('lookout_thresholds')
+            ->where('id', $rule['id'])
+            ->update([
+                'last_triggered_at' => now()->subMinutes(24)->toDateTimeString(),
+            ]);
+
+        expect($this->storage->claimThresholdDispatchSlot($rule['id'], 25))->toBeFalse();
+
+        DB::connection('lookout')
+            ->table('lookout_thresholds')
+            ->where('id', $rule['id'])
+            ->update([
+                'last_triggered_at' => now()->subMinutes(26)->toDateTimeString(),
+            ]);
+
+        expect($this->storage->claimThresholdDispatchSlot($rule['id'], 25))->toBeTrue();
+    });
+
+    it('guards non-positive threshold cooldown windows to one minute', function () {
+        $rule = $this->storage->createThresholdRule(makeThresholdRuleAttributes());
+
+        expect($this->storage->claimThresholdDispatchSlot($rule['id'], 0))->toBeTrue();
+
+        DB::connection('lookout')
+            ->table('lookout_thresholds')
+            ->where('id', $rule['id'])
+            ->update([
+                'last_triggered_at' => now()->subSeconds(30)->toDateTimeString(),
+            ]);
+
+        expect($this->storage->claimThresholdDispatchSlot($rule['id'], 0))->toBeFalse();
+    });
+
+    it('normalizes threshold rules that rely on the default cooldown', function () {
+        $now = now()->toDateTimeString();
+
+        DB::connection('lookout')->table('lookout_thresholds')->insert([
+            'name' => 'Default cooldown',
+            'metric' => 'exception_count',
+            'condition' => 'gte',
+            'value' => 1,
+            'window_minutes' => 15,
+            'channels' => json_encode(['mail']),
+            'enabled' => true,
+            'last_triggered_at' => null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        $ruleId = (int) DB::connection('lookout')->table('lookout_thresholds')->value('id');
+        $rule = $this->storage->getThresholdRule($ruleId);
+
+        expect($rule)->not->toBeNull()
+            ->and($rule['cooldown_minutes'])->toBe(15)
+            ->and($rule['channels'])->toBe(['mail'])
+            ->and($rule['enabled'])->toBeTrue();
     });
 });
 

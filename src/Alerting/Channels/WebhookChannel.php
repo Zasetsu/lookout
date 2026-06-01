@@ -14,7 +14,7 @@ class WebhookChannel implements ChannelContract
             return;
         }
 
-        $payload = json_encode($context);
+        $payload = json_encode($context, JSON_THROW_ON_ERROR);
         $signature = hash_hmac('sha256', $payload, config('app.key'));
 
         Http::timeout(5)
