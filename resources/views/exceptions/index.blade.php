@@ -27,7 +27,10 @@
 
 <div class="panel mb12">
     <div class="panel-h"><h3>Exception trend</h3><span class="sub">events by hour · last 24h</span></div>
-    <div class="panel-b"><div class="js-bars" data-tipunit="events" data-values="{{ $trendValues }}" data-x="oldest|now" data-err=""></div></div>
+    <div class="panel-b">
+        <div class="js-bars" data-tipunit="events" data-values="{{ $trendValues }}" data-x="oldest|now" data-err=""></div>
+        @include('lookout::partials.deploy-markers', ['deployMarkers' => $deployMarkers ?? []])
+    </div>
 </div>
 
 <form method="GET" action="{{ route('lookout.exceptions') }}" class="filters">

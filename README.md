@@ -17,6 +17,7 @@ Lookout is designed for teams that want production-grade visibility inside their
 - [Dashboard Guide](#dashboard-guide)
 - [Configuration Reference](#configuration-reference)
 - [API Reference](#api-reference)
+- [Deploy Markers](#deploy-markers)
 - [Alerting](#alerting)
 - [Privacy and Redaction](#privacy-and-redaction)
 - [Retention and Pruning](#retention-and-pruning)
@@ -41,6 +42,7 @@ Lookout records the operational signals that usually require a mix of external t
 | Mail | Mailable/message metadata, recipients, subject, delivery events | Mail |
 | Notifications | Notification class, channel, notifiable metadata | Notifications |
 | Logs | Log level, message, context | Logs |
+| Deploy markers | Version, environment, commit, source, release timestamp | Overview, Requests, Exceptions |
 | Audit | Dashboard mutations, pruning, alert triggers, exportable audit trail | Audit |
 | Health | Storage driver, counts, payload budget, retention-related state | Health |
 
@@ -263,11 +265,13 @@ The dashboard is available at the configured `LOOKOUT_PATH`, which defaults to `
 
 ### Overview
 
-The first page summarizes request volume, average response time, error rate, unresolved exceptions, throughput, status-code distribution, top slow routes, and top exception groups.
+The first page summarizes request volume, average response time, error rate, unresolved exceptions, throughput, status-code distribution, top slow routes, top exception groups, and latest deploy context.
 
 ### Requests
 
 Shows sampled HTTP request traces.
+
+The request volume panel shows deploy markers in the visible 24-hour chart window when deploys have been recorded.
 
 Available filters:
 
@@ -287,6 +291,8 @@ Displays the selected trace with metadata, request context, response status, mem
 ### Exceptions
 
 Groups failures by fingerprint and tracks recurrence.
+
+The exception trend panel shows deploy markers in the visible 24-hour chart window so exception spikes can be correlated with releases.
 
 Available filters:
 
@@ -403,6 +409,7 @@ php artisan vendor:publish --tag=lookout-config
 | --- | --- | --- | --- |
 | `api.enabled` | `LOOKOUT_API_ENABLED` | `false` | Registers token-protected API routes. |
 | `api.token` | `LOOKOUT_API_TOKEN` | `null` | Bearer token required by the API. |
+| `api.deploy_marker_token` | `LOOKOUT_DEPLOY_MARKER_TOKEN` | `null` | Separate bearer token required to create deploy markers. |
 
 ### Storage
 
@@ -496,6 +503,7 @@ The API is disabled by default. Enable it with:
 ```env
 LOOKOUT_API_ENABLED=true
 LOOKOUT_API_TOKEN="a-long-random-token"
+LOOKOUT_DEPLOY_MARKER_TOKEN="a-different-long-random-token"
 ```
 
 All API routes use the same path prefix as the dashboard:
@@ -561,6 +569,114 @@ Query parameters:
 Returns one trace and its child events.
 
 Missing traces return `404`.
+
+### `POST /lookout/api/deploy-markers`
+
+Creates or updates a deploy marker. This endpoint intentionally uses `LOOKOUT_DEPLOY_MARKER_TOKEN`, not `LOOKOUT_API_TOKEN`.
+
+```bash
+curl -X POST https://example.com/lookout/api/deploy-markers \
+  -H "Authorization: Bearer $LOOKOUT_DEPLOY_MARKER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "version": "v1.2.3",
+    "environment": "production",
+    "commit": "abc123",
+    "branch": "main",
+    "author": "Jane Doe",
+    "source": "github_actions",
+    "compare_url": "https://github.com/acme/app/compare/old...abc123",
+    "notes": "Checkout latency fix",
+    "deployed_at": "2026-05-31T15:00:00Z"
+  }'
+```
+
+Required fields:
+
+| Field | Meaning |
+| --- | --- |
+| `version` | Release name, build number, or version string. |
+| `environment` | Environment where the release was deployed. |
+
+Optional fields:
+
+| Field | Meaning |
+| --- | --- |
+| `commit` | Commit SHA. |
+| `branch` | Source branch. |
+| `author` | Deploy author or actor. |
+| `source` | Deploy source, such as `github_actions`. |
+| `compare_url` | URL to a compare/release page. |
+| `notes` | Short operator-facing notes. |
+| `deployed_at` | Deploy timestamp. Defaults to the current time when omitted. |
+
+Responses:
+
+- `201` with `meta.created=true` when a marker is inserted.
+- `200` with `meta.created=false` when an existing marker is updated.
+- `401` when the bearer token is wrong.
+- `404` when the API or deploy marker token is not configured.
+- `422` when payload validation fails.
+
+## Deploy Markers
+
+Deploy markers let Lookout correlate release events with request volume, latency, and exception spikes.
+
+Create or update a marker from a deploy script:
+
+```bash
+php artisan lookout:mark-deploy \
+  --release=v1.2.3 \
+  --environment=production \
+  --commit=abc123 \
+  --branch=main \
+  --author="Jane Doe" \
+  --source=github_actions \
+  --compare-url=https://github.com/acme/app/compare/old...abc123 \
+  --notes="Checkout latency fix"
+```
+
+Laravel reserves `--version` as a global Artisan option, so the command uses `--release` while the stored/API field remains `version`.
+
+The command works independently of `LOOKOUT_API_ENABLED`; it writes directly through Lookout storage.
+
+Deploy markers are idempotent:
+
+| Input | Identity key |
+| --- | --- |
+| Commit present | `environment + version + commit` |
+| Commit absent | `environment + version` where commit is `NULL` |
+
+Repeated command/API calls update the existing marker instead of creating duplicates. This makes CI retries safe.
+
+Markers are stored in `lookout_deploy_markers` and shown on:
+
+- Overview, including latest deploy context.
+- Requests, near the request volume trend.
+- Exceptions, near the exception trend.
+
+Every command/API upsert writes a `deploy_marker_created` audit entry with `created=true` or `created=false` and `via=command` or `via=api`.
+
+GitHub Actions example:
+
+```yaml
+- name: Mark Lookout deploy
+  run: |
+    curl -X POST "$APP_URL/lookout/api/deploy-markers" \
+      -H "Authorization: Bearer $LOOKOUT_DEPLOY_MARKER_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d @- <<JSON
+    {
+      "version": "${GITHUB_REF_NAME}-${GITHUB_RUN_NUMBER}",
+      "environment": "production",
+      "commit": "${GITHUB_SHA}",
+      "branch": "${GITHUB_REF_NAME}",
+      "source": "github_actions",
+      "compare_url": "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}",
+      "deployed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    }
+    JSON
+```
 
 ## Alerting
 
@@ -717,7 +833,7 @@ Prune runs are written to the audit log as `prune_run`.
 
 ## Data Model
 
-Lookout creates five tables:
+Lookout creates six tables:
 
 | Table | Purpose |
 | --- | --- |
@@ -725,6 +841,7 @@ Lookout creates five tables:
 | `lookout_events` | Child events for traces and event-only recorders. |
 | `lookout_exception_groups` | Fingerprinted exception group lifecycle. |
 | `lookout_thresholds` | Alert threshold definitions. |
+| `lookout_deploy_markers` | Release/deploy markers used for dashboard correlation. |
 | `lookout_audit_log` | Operator actions, pruning, alert delivery telemetry. |
 
 ## Production Checklist
@@ -736,6 +853,7 @@ Before enabling Lookout in production:
 - Use HTTPS when Basic Auth is enabled.
 - Set `LOOKOUT_API_ENABLED=true` only when needed.
 - Use a long random `LOOKOUT_API_TOKEN`.
+- Use a separate long random `LOOKOUT_DEPLOY_MARKER_TOKEN` when CI/CD creates deploy markers.
 - Move ingestion to a real queue connection such as Redis, database, SQS, or another production queue.
 - Run a dedicated Lookout worker or include the Lookout queue in your worker topology.
 - Choose the storage driver before collecting persistent data.

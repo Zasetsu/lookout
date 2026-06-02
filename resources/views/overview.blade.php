@@ -29,6 +29,20 @@
     </div>
 </div>
 
+<div class="deploy-latest mb12">
+    <span class="deploy-latest-label">Latest deploy</span>
+    @if($latestDeployMarker)
+        <span class="deploy-version">{{ $latestDeployMarker['version'] ?? 'deploy' }}</span>
+        <span class="deploy-env">{{ $latestDeployMarker['environment'] ?? app()->environment() }}</span>
+        @if(! empty($latestDeployMarker['commit']))
+            <span class="deploy-commit">{{ substr((string) $latestDeployMarker['commit'], 0, 7) }}</span>
+        @endif
+        <span class="deploy-time">{{ $latestDeployMarker['deployed_at'] ?? '' }}</span>
+    @else
+        <span class="deploy-empty">No deploy recorded</span>
+    @endif
+</div>
+
 <div class="kpi-row" style="grid-template-columns:repeat(5,1fr)">
     <div class="kpi">
         <span class="k-lbl">Requests</span>
@@ -82,6 +96,7 @@
     </div>
     <div class="panel-b">
         <div class="js-bars" data-tipunit="req" data-values="{{ $barValues }}" data-labels="{{ e($barLabels) }}" data-x="oldest|now"></div>
+        @include('lookout::partials.deploy-markers', ['deployMarkers' => $deployMarkers ?? []])
     </div>
 </div>
 

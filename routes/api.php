@@ -15,4 +15,5 @@ Route::prefix(config('lookout.dashboard.path', 'lookout').'/api')
         Route::get('/exceptions', [ApiController::class, 'exceptions']);
         Route::get('/requests', [ApiController::class, 'requests']);
         Route::get('/traces/{traceId}', [ApiController::class, 'trace']);
+        Route::post('/deploy-markers', [ApiController::class, 'storeDeployMarker']);
     });

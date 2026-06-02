@@ -209,6 +209,29 @@ a { color: inherit; text-decoration: none; }
 .feedback .x { margin-left: auto; cursor: pointer; opacity: .7; }
 .feedback .x:hover { opacity: 1; }
 
+/* deploy markers */
+.deploy-latest,
+.deploy-strip {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel);
+  padding: 8px 10px; color: var(--text-2);
+}
+.deploy-strip { margin-top: 10px; background: var(--panel-2); }
+.deploy-latest-label,
+.deploy-strip-title {
+  color: var(--muted); font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+}
+.deploy-chip {
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0;
+  border: 1px solid var(--info-bd); border-radius: 6px; background: var(--info-bg);
+  padding: 3px 7px; color: var(--text-2);
+}
+.deploy-version { font-weight: 600; color: var(--text); }
+.deploy-env { color: var(--accent-text); }
+.deploy-commit { font-family: var(--font-mono); color: var(--muted); }
+.deploy-time { font-family: var(--font-mono); color: var(--faint); }
+.deploy-empty { color: var(--muted); }
+
 /* ---------- KPI ---------- */
 .kpi-row { display: grid; gap: var(--gap); margin-bottom: var(--gap); }
 .kpi {

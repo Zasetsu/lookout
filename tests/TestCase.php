@@ -14,6 +14,7 @@ class TestCase extends BaseTestCase
         'create_lookout_exception_groups_table.php',
         'create_lookout_thresholds_table.php',
         'add_cooldown_minutes_to_lookout_thresholds_table.php',
+        'create_lookout_deploy_markers_table.php',
         'create_lookout_audit_log_table.php',
     ];
 
@@ -21,6 +22,7 @@ class TestCase extends BaseTestCase
         'lookout_events',
         'lookout_exception_groups',
         'lookout_thresholds',
+        'lookout_deploy_markers',
         'lookout_audit_log',
         'lookout_traces',
     ];
@@ -42,6 +44,8 @@ class TestCase extends BaseTestCase
         $app['config']->set('lookout.storage.driver', $storageDriver);
         $app['config']->set('lookout.storage.connection', $storageConnection);
         $app['config']->set('lookout.storage.path', ':memory:');
+        $app['config']->set('cache.default', 'array');
+        $app['config']->set('session.driver', 'array');
         $app['config']->set('lookout.recorders', [
             'request' => false,
             'query' => false,

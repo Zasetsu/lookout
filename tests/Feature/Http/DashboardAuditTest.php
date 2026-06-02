@@ -112,6 +112,26 @@ class DashboardAuditStorageFake implements StorageContract
         return [];
     }
 
+    public function upsertDeployMarker(array $attributes): array
+    {
+        return ['marker' => $attributes, 'created' => true];
+    }
+
+    public function getDeployMarkers(array $filters = [], int $limit = 50, int $offset = 0): array
+    {
+        return ['data' => [], 'total' => 0];
+    }
+
+    public function getLatestDeployMarker(?string $environment = null): ?array
+    {
+        return null;
+    }
+
+    public function getDeployMarkersBetween(string $from, string $to, ?string $environment = null): array
+    {
+        return [];
+    }
+
     public function getEnabledThresholds(): array
     {
         return [];

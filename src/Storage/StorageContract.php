@@ -42,6 +42,14 @@ interface StorageContract
 
     public function getPayloadBudgetStats(): array;
 
+    public function upsertDeployMarker(array $attributes): array;
+
+    public function getDeployMarkers(array $filters = [], int $limit = 50, int $offset = 0): array;
+
+    public function getLatestDeployMarker(?string $environment = null): ?array;
+
+    public function getDeployMarkersBetween(string $from, string $to, ?string $environment = null): array;
+
     public function getEnabledThresholds(): array;
 
     public function getThresholdRules(array $filters = [], int $limit = 50, int $offset = 0): array;
